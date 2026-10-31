@@ -144,9 +144,15 @@ class Store:
               (SELECT COUNT(*) FROM relationships r WHERE r.investigation_id = i.id)
                   AS relationship_count,
               (SELECT COUNT(*) FROM runs r WHERE r.investigation_id = i.id) AS run_count,
-              (SELECT MAX(started_at) FROM runs r WHERE r.investigation_id = i.id) AS last_run_at
+              (SELECT MAX(started_at) FROM runs r WHERE r.investigation_id = i.id) AS last_run_at,
+              (SELECT COUNT(DISTINCT o.entity_id) FROM observations o
+                 WHERE o.investigation_id = i.id AND o.kind = 'threat.listed') AS listed_count
             FROM investigations i ORDER BY i.updated_at DESC""")
-        return [dict(r) for r in rows]
+        by_type: dict[str, dict[str, int]] = {}
+        for r in self._query("SELECT investigation_id, type, COUNT(*) AS n FROM entities"
+                             " GROUP BY investigation_id, type"):
+            by_type.setdefault(r["investigation_id"], {})[r["type"]] = r["n"]
+        return [{**dict(r), "type_counts": by_type.get(r["id"], {})} for r in rows]
 
     def rename_investigation(self, inv_id: str, name: str, description: str | None = None) -> None:
         if not name.strip():
@@ -296,7 +302,9 @@ class Store:
         if search:
             sql += " AND e.value LIKE :search ESCAPE '\\'"
             params["search"] = "%" + search.replace("%", "\\%").replace("_", "\\_") + "%"
-        sql += " ORDER BY e.type, e.value LIMIT :limit OFFSET :offset"
+        # Most connected first: hubs are where an analyst usually starts.
+        sql += (" ORDER BY relationships DESC, observations DESC, e.type, e.value"
+                " LIMIT :limit OFFSET :offset")
         return [{**dict(r), "attributes": json.loads(r["attributes"])}
                 for r in self._query(sql, params)]
 

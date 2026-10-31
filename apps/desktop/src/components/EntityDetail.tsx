@@ -129,7 +129,7 @@ function ObservationGroup({ kind, items, onEvidence }: { kind: string; items: Ob
       <ul className="divide-y divide-line/40">
         {shown.map((o) => (
           <li key={o.id} className="grid grid-cols-[1fr_auto] gap-x-3 px-3 py-1.5">
-            <div className="mono min-w-0 break-words">{formatValue(o.value)}</div>
+            <div className="mono min-w-0 break-words"><ValueView value={o.value} /></div>
             <div className="flex items-center gap-2 text-xxs text-muted">
               <Confidence value={o.confidence} />
             </div>
@@ -149,4 +149,24 @@ function ObservationGroup({ kind, items, onEvidence }: { kind: string; items: Ob
       )}
     </div>
   );
+}
+
+/** Lists of records (archive captures, passive DNS rows) as short lists
+ * instead of one long run-on string. */
+function ValueView({ value }: { value: unknown }) {
+  const [all, setAll] = useState(false);
+  if (Array.isArray(value) && value.some((v) => v !== null && typeof v === "object")) {
+    const shown = all ? value : value.slice(0, 5);
+    return (
+      <ul className="space-y-0.5">
+        {shown.map((v, i) => <li key={i} className="break-all">{formatValue(v)}</li>)}
+        {value.length > 5 && (
+          <li><button className="text-xxs text-accent hover:underline" onClick={() => setAll(!all)}>
+            {all ? "show fewer" : `+${value.length - 5} more`}
+          </button></li>
+        )}
+      </ul>
+    );
+  }
+  return <>{formatValue(value)}</>;
 }

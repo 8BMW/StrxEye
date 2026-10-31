@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { EntityDetail } from "../../components/EntityDetail";
 import { EmptyState, ErrorBanner, Spinner, TypeBadge } from "../../components/ui";
-import { href, navigate, relativeTime, useLoad } from "../../lib";
+import { entitySubtitle, href, navigate, relativeTime, useLoad } from "../../lib";
 import { ENTITY_TYPES, type EntityType } from "../../types";
 import type { PanelProps } from "../Workspace";
 
@@ -58,15 +58,19 @@ export function EntitiesPanel({ inv, route }: PanelProps) {
           {rows.error && <div className="p-3"><ErrorBanner message={rows.error} onRetry={rows.reload} /></div>}
           {rows.loading && !rows.data && <div className="p-3 text-muted"><Spinner /> Loading</div>}
           {rows.data && (
-            <table className="tbl">
-              <thead><tr><th>Type</th><th>Value</th><th className="text-right">Obs.</th><th className="text-right">Links</th><th>Last seen</th></tr></thead>
+            <table className="tbl table-fixed">
+              <thead><tr><th className="w-32">Type</th><th>Value</th><th className="w-16 text-right">Obs.</th><th className="w-16 text-right">Links</th><th className="w-28">Last seen</th></tr></thead>
               <tbody>
                 {rows.data.map((e) => (
                   <tr key={e.id} onClick={() => select(e.id)} aria-selected={route.entity === e.id}
                     className={`cursor-pointer ${route.entity === e.id ? "bg-accent/10" : "hover:bg-raised/60"}`}>
                     <td><TypeBadge type={e.type} /></td>
-                    <td className="mono max-w-0 truncate" title={e.value}>
-                      <a href={href({ ...route, tab: "entities", entity: e.id })} onClick={(ev) => ev.preventDefault()} className="hover:text-accent">{e.value}</a>
+                    <td className="max-w-0" title={e.value}>
+                      <a href={href({ ...route, tab: "entities", entity: e.id })} onClick={(ev) => ev.preventDefault()}
+                        className="mono block truncate hover:text-accent">{e.value}</a>
+                      {entitySubtitle(e.type, e.attributes) && (
+                        <span className="block truncate text-xxs text-muted">{entitySubtitle(e.type, e.attributes)}</span>
+                      )}
                     </td>
                     <td className="text-right tabular-nums">{e.observations}</td>
                     <td className="text-right tabular-nums">{e.relationships}</td>

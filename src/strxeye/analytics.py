@@ -166,6 +166,69 @@ def timeline(observations: list[dict[str, Any]],
     return sorted(unique.values(), key=lambda e: e["at"])
 
 
+SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2, "info": 3}
+
+
+def threats(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every threat-related signal in an investigation, one row per entity
+    and signal, most severe first.
+
+    Severity follows fixed, documented rules rather than a combined score:
+    a block-list hit keeps the list's own severity, VirusTotal is high from
+    5 malicious engine verdicts and medium from 1, OTX mentions are medium
+    (info when OTX allow-lists the indicator), and banner-based CVE guesses
+    are low because nothing was verified.
+    """
+    allowlisted = {(o["entity_type"], o["entity_value"]) for o in observations
+                   if o["kind"] == "otx.allowlisted"}
+    found: dict[tuple, dict[str, Any]] = {}
+    cves: dict[tuple, tuple[dict[str, Any], set[str]]] = {}
+
+    def add(obs, category, severity, summary):
+        key = (obs["entity_type"], obs["entity_value"], category, summary)
+        if key in found:
+            return
+        found[key] = {"entity_type": obs["entity_type"], "entity": obs["entity_value"],
+                      "entity_id": obs["entity_id"], "category": category,
+                      "severity": severity, "summary": summary, "source": obs["source"],
+                      "confidence": obs["confidence"], "collected_at": obs["collected_at"],
+                      "evidence_id": obs["evidence_id"]}
+
+    for obs in observations:
+        kind, value = obs["kind"], obs["value"]
+        if kind == "threat.listed" and isinstance(value, dict):
+            extra = value.get("malware") or value.get("sblid") or ""
+            add(obs, "block list", value.get("severity", "medium"),
+                f"{value.get('feed')}{f' ({extra})' if extra else ''}")
+        elif kind == "otx.pulse_count" and isinstance(value, int) and value > 0:
+            listed = (obs["entity_type"], obs["entity_value"]) in allowlisted
+            add(obs, "threat reports", "info" if listed else "medium",
+                f"mentioned in {value} OTX pulse(s)"
+                + (" (OTX allow-lists this indicator)" if listed else ""))
+        elif kind == "vt.analysis_stats" and isinstance(value, dict):
+            bad = int(value.get("malicious", 0))
+            if bad:
+                total = sum(int(v) for v in value.values() if isinstance(v, int))
+                add(obs, "reputation", "high" if bad >= 5 else "medium",
+                    f"{bad}/{total} VirusTotal engines flag it as malicious")
+        elif kind in ("vt.threat_label",):
+            add(obs, "malware", "high", f"VirusTotal threat label: {value}")
+        elif kind == "scan.possible_vulnerability":
+            cves.setdefault((obs["entity_type"], obs["entity_value"]), (obs, set()))[1].add(value)
+        elif kind == "tls.verified" and value is False:
+            add(obs, "exposure", "medium", "served TLS certificate fails validation")
+    # An old server can carry hundreds of banner-based CVE guesses; one row
+    # per host keeps them from burying the signals that matter.
+    for obs, ids in cves.values():
+        listed = sorted(ids, reverse=True)
+        more = f" and {len(listed) - 5} more" if len(listed) > 5 else ""
+        add(obs, "exposure", "low",
+            f"{len(listed)} possible CVE(s) guessed from service banners, unverified: "
+            f"{', '.join(listed[:5])}{more}")
+    return sorted(found.values(),
+                  key=lambda f: (SEVERITY_ORDER.get(f["severity"], 9), f["entity"]))
+
+
 def _detail(kind: str, value: dict | None) -> str | None:
     if not value:
         return None

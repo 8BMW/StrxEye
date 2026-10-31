@@ -58,6 +58,21 @@ describe("buildView", () => {
     expect(v.hiddenByCollapse).toBe(3);
   });
 
+  it("hides nodes left without visible links, but never the seed", () => {
+    const v = buildView(graph, { ...base, hiddenTypes: new Set(["ip"]), showInferred: false });
+    // Network 4 only linked to IP 2, which is hidden; the seed stays.
+    expect(v.nodes.map((n) => n.id).sort()).toEqual([1, 5]);
+    expect(v.hiddenIsolated).toBe(2);
+  });
+
+  it("labels seeds, hubs and structural types", () => {
+    const v = buildView(graph, base);
+    const important = Object.fromEntries(v.nodes.map((n) => [n.id, n.important]));
+    expect(important[1]).toBe(true); // seed
+    expect(important[4]).toBe(true); // network
+    expect(important[3]).toBe(false); // ordinary leaf IP
+  });
+
   it("never folds seeds", () => {
     const v = buildView(graph, { ...base, collapsed: new Set([5]) });
     expect(v.nodes.map((n) => n.id)).toContain(1);

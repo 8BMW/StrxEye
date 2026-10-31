@@ -474,6 +474,30 @@ def investigate_timeline(case_id: str, json_: JsonOpt = False) -> None:
     out.print(table)
 
 
+@investigate_app.command("threats")
+def investigate_threats(case_id: str, json_: JsonOpt = False) -> None:
+    """Threat signals: block-list hits, threat reports, reputation, exposures."""
+    from ..analytics import threats
+
+    store = open_store()
+    rows = threats(store.all_observations(_resolve(store, case_id)))
+    if json_:
+        out.print_json(json.dumps(rows, default=str))
+        return
+    if not rows:
+        out.print("No threat signals in this investigation.")
+        return
+    styles = {"high": "red", "medium": "yellow", "low": "cyan", "info": "dim"}
+    table = Table(show_edge=False, pad_edge=False)
+    for col in ("severity", "entity", "category", "signal", "source"):
+        table.add_column(col, overflow="fold")
+    for r in rows:
+        style = styles.get(r["severity"], "")
+        table.add_row(f"[{style}]{r['severity']}[/{style}]", r["entity"], r["category"],
+                      r["summary"], r["source"])
+    out.print(table)
+
+
 @investigate_app.command("delete")
 def investigate_delete(case_id: str, yes: Annotated[bool, typer.Option(
         "--yes", "-y", help="Do not ask for confirmation.")] = False) -> None:

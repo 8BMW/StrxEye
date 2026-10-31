@@ -151,6 +151,21 @@ async def test_otx(make_ctx):
 
 
 @respx.mock
+async def test_otx_allowlisted_indicator_does_not_import_pulses(make_ctx):
+    body = {**OTX_BODY, "validation": [{"source": "majestic",
+                                        "message": "Whitelisted domain example.com"}]}
+    respx.get("https://otx.alienvault.com/api/v1/indicators/domain/example.com/general").mock(
+        return_value=httpx.Response(200, json=body))
+    found = await OtxCollector().collect(DOMAIN, make_ctx())
+    kinds = {o.kind: o.value for o in found.observations}
+    assert kinds["otx.pulse_count"] == 1
+    assert kinds["otx.allowlisted"] == ["Whitelisted domain example.com"]
+    assert "otx.pulse" not in kinds
+    assert not [e for e in found.entities.values() if e.type is EntityType.MALWARE]
+    assert "not imported" in found.notes[0]
+
+
+@respx.mock
 async def test_otx_ipv6_and_hash_paths(make_ctx):
     v6 = respx.get("https://otx.alienvault.com/api/v1/indicators/IPv6/2001:db8::1/general").mock(
         return_value=httpx.Response(200, json={"pulse_info": {"count": 0, "pulses": []}}))

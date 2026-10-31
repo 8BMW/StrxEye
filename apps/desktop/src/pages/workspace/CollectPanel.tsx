@@ -84,9 +84,9 @@ export function CollectPanel({ inv, reload }: PanelProps) {
   const running = runId !== null;
 
   return (
-    <div className="grid h-full grid-cols-1 overflow-auto xl:grid-cols-[minmax(380px,460px)_1fr]">
-      <section className="border-b border-line p-5 xl:border-b-0 xl:border-r">
-        <form onSubmit={start} className="space-y-4">
+    <div className="grid h-full grid-cols-1 overflow-auto 2xl:grid-cols-[minmax(380px,460px)_1fr]">
+      <section className="border-b border-line p-5 2xl:border-b-0 2xl:border-r">
+        <form onSubmit={start} className="max-w-5xl space-y-4">
           <div className="space-y-1">
             <label htmlFor="target" className="label">Target</label>
             <div className="flex gap-2">
@@ -102,7 +102,7 @@ export function CollectPanel({ inv, reload }: PanelProps) {
             <ErrorBanner message={`No collectors support ${type} targets yet.`} />
           )}
           {applicable.length > 0 && (
-            <fieldset className="space-y-1.5">
+            <fieldset className="grid gap-1.5 md:grid-cols-2">
               <legend className="label mb-1">Collectors</legend>
               {applicable.map((c) => {
                 const needsKey = c.requires_key !== null && !keySet.has(c.requires_key);
@@ -137,7 +137,7 @@ export function CollectPanel({ inv, reload }: PanelProps) {
               </span>
             </label>
             <label className="flex items-start gap-2">
-              <input type="checkbox" className="mt-0.5 accent-[rgb(var(--accent))]" checked={expand} disabled={running || type !== "domain"}
+              <input type="checkbox" className="mt-0.5 accent-[rgb(var(--accent))]" checked={expand && type === "domain"} disabled={running || type !== "domain"}
                 onChange={(e) => setExpand(e.target.checked)} />
               <span>Expand discovered IPs
                 <span className="block text-xxs text-muted">Look up network owner, BGP origin and reverse DNS for addresses the domain resolves to.</span>
@@ -165,7 +165,7 @@ export function CollectPanel({ inv, reload }: PanelProps) {
         {inv.runs.length === 0 ? (
           <p className="text-muted">No collection runs yet. Enter a target to start.</p>
         ) : (
-          <div className="card overflow-hidden">
+          <div className="card overflow-x-auto">
             <table className="tbl">
               <thead><tr><th>Run</th><th>Target</th><th>Started</th><th>Status</th><th className="text-right">Collectors</th><th className="text-right">Failed</th><th className="text-right">Observations</th><th /></tr></thead>
               <tbody>
@@ -173,7 +173,7 @@ export function CollectPanel({ inv, reload }: PanelProps) {
                   <tr key={r.id} className="hover:bg-raised/60">
                     <td className="mono">{r.id}</td>
                     <td><span className="mono">{r.target_value}</span>{r.options.direct && <span className="chip ml-1.5 border-warn/50 text-warn">direct</span>}</td>
-                    <td className="text-muted" title={formatTime(r.started_at)}>{relativeTime(r.started_at)}</td>
+                    <td className="whitespace-nowrap text-muted" title={formatTime(r.started_at)}>{relativeTime(r.started_at)}</td>
                     <td><StatusText status={r.status} /></td>
                     <td className="text-right tabular-nums">{r.collector_count}</td>
                     <td className={`text-right tabular-nums ${r.failed_count ? "text-bad" : ""}`}>{r.failed_count}</td>
