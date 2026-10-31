@@ -24,6 +24,21 @@ export interface InvestigationSummary {
   relationship_count: number;
   run_count: number;
   last_run_at: string | null;
+  listed_count: number;
+  type_counts: Partial<Record<EntityType, number>>;
+}
+
+export interface ThreatRow {
+  entity_type: EntityType;
+  entity: string;
+  entity_id: number;
+  category: string;
+  severity: "high" | "medium" | "low" | "info";
+  summary: string;
+  source: string;
+  confidence: number;
+  collected_at: string;
+  evidence_id: string | null;
 }
 
 export interface RunSummary {

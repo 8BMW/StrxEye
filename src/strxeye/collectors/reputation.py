@@ -17,6 +17,7 @@ from .base import Collector, CollectorContext, Findings
 OTX = "https://otx.alienvault.com/api/v1/indicators/"
 VT = "https://www.virustotal.com/api/v3/"
 MAX_PULSES = 25
+MAX_FAMILIES_PER_PULSE = 5
 
 
 def otx_section(target: EntityRef) -> str:
@@ -61,9 +62,16 @@ class OtxCollector(Collector):
         obs = dict(method="OTX indicator lookup (HTTPS)", evidence_id=evidence, source_url=url)
         found.observe(target, "otx.pulse_count", info.get("count", 0), **obs)
         if data.get("validation"):
-            # OTX marks well-known benign indicators (e.g. popular domains).
+            # OTX allow-lists well-known benign indicators (popular domains,
+            # public resolvers). They show up in many pulses as download
+            # sites or connectivity checks; importing those pulses would tie
+            # hundreds of malware families to a legitimate site.
             found.observe(target, "otx.allowlisted",
-                          [v.get("name") or v.get("message") for v in data["validation"]], **obs)
+                          [v.get("message") or v.get("name") for v in data["validation"]], **obs)
+            if pulses:
+                found.notes.append(f"OTX allow-lists this indicator; {len(pulses)} pulse "
+                                   "mention(s) counted but not imported")
+            return found
         for pulse in pulses[:MAX_PULSES]:
             ref = found.entity(EntityType.INDICATOR, f"OTX pulse {pulse.get('id')}",
                                kind="threat report", name=pulse.get("name"),
@@ -75,7 +83,7 @@ class OtxCollector(Collector):
                           **obs, confidence=0.5)
             found.relate(target, RelationType.OBSERVED_IN, ref, evidence_id=evidence,
                          confidence=0.5)
-            for family in pulse.get("malware_families") or []:
+            for family in (pulse.get("malware_families") or [])[:MAX_FAMILIES_PER_PULSE]:
                 label = family.get("display_name") if isinstance(family, dict) else family
                 if label:
                     malware = found.entity(EntityType.MALWARE, str(label))

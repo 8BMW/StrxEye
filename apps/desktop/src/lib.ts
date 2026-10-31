@@ -13,7 +13,7 @@ export type Route =
   | { page: "audit" }
   | { page: "search"; q?: string };
 
-export const WORKSPACE_TABS = ["collect", "entities", "graph", "timeline", "evidence", "history", "report"] as const;
+export const WORKSPACE_TABS = ["collect", "entities", "graph", "threats", "timeline", "evidence", "history", "report"] as const;
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 
 export function parseRoute(hash: string): Route {
@@ -116,6 +116,25 @@ export function formatValue(value: unknown): string {
       .join("  ·  ");
   }
   return String(value);
+}
+
+/** Short secondary text that makes an entity recognisable in lists. */
+export function entitySubtitle(type: string, attributes: Record<string, unknown>): string | null {
+  const a = attributes;
+  const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+  if (type === "certificate") {
+    const names = Array.isArray(a.names) ? (a.names as string[]) : [];
+    const first = str(a.common_name) ?? names[0] ?? null;
+    if (!first) return null;
+    return names.length > 1 ? `${first} +${names.length - 1}` : first;
+  }
+  if (type === "asn") return str(a.name);
+  if (type === "network") return str(a.name);
+  if (type === "organization") {
+    return [str(a.role), str(a.jurisdiction), str(a.hq_country)].filter(Boolean).join(" · ") || null;
+  }
+  if (type === "indicator") return str(a.name) ?? str(a.kind);
+  return null;
 }
 
 export function formatBytes(n: number | undefined): string {

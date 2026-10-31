@@ -341,6 +341,10 @@ def create_app(store: Store, token: str, engine_factory=None,
             raise HTTPException(404, "these entities are not connected")
         return path
 
+    @app.get("/api/investigations/{inv_id}/threats")
+    def threat_summary(inv_id: str):
+        return analytics.threats(store.all_observations(store.resolve_investigation_id(inv_id)))
+
     @app.get("/api/investigations/{inv_id}/timeline")
     def timeline(inv_id: str):
         inv = store.resolve_investigation_id(inv_id)

@@ -6,6 +6,39 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-31
+
+### Added
+
+- Threats tab and `strxeye investigate threats`: block-list hits, OTX mentions,
+  VirusTotal detections and exposure signals in one list. Severity follows
+  fixed, documented rules per source.
+- Overview shows each investigation's entity composition and how many of its
+  entities are on block lists.
+- README screenshots and a demo video recorded from the app on real data.
+
+### Changed
+
+- Graph labels only the nodes that orient you (seeds, hubs, ASNs, networks,
+  organisations, malware); others show their label on hover or selection.
+  Nodes left with no visible links after filtering are hidden and counted.
+- "Find node" selects an exact match even when other nodes contain the text.
+- Entities are listed most-connected first; certificates show their names and
+  ASNs their holder next to the ID.
+- Lists of records (archive captures, passive DNS) display as short lists.
+- Collect page stacks the form above run history on screens narrower than
+  1536 px, and the run table no longer clips.
+
+### Fixed
+
+- OTX pulses for indicators OTX itself allow-lists (popular domains, public
+  resolvers) are no longer imported; python.org previously gained 400
+  unrelated malware nodes this way.
+- InternetDB CVE guesses no longer become graph nodes; one old server could add
+  200 of them. They remain as observations and in Threats, grouped per host.
+- "Expand discovered IPs" no longer shows as checked for targets it does not
+  apply to.
+
 ## [1.0.0] - 2026-10-31
 
 First public release.

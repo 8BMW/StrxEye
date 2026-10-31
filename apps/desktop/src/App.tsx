@@ -78,7 +78,7 @@ export default function App() {
       } else if (mod && e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         setNewOpen(true);
-      } else if (e.altKey && /^[1-7]$/.test(e.key) && route.page === "investigation") {
+      } else if (e.altKey && /^[1-8]$/.test(e.key) && route.page === "investigation") {
         e.preventDefault();
         navigate({ ...route, tab: WORKSPACE_TABS[Number(e.key) - 1], entity: undefined });
       }

@@ -11,6 +11,8 @@ export interface ViewNode extends GraphNode {
   label: string;
   folded: number; // how many leaf neighbours are hidden inside this node
   degree: number;
+  /** Labelled at all zoom levels; other labels appear on hover or selection. */
+  important: boolean;
 }
 
 export interface View {
@@ -18,7 +20,12 @@ export interface View {
   edges: GraphEdge[];
   hiddenByType: number;
   hiddenByCollapse: number;
+  hiddenIsolated: number;
 }
+
+// Types that are few and structural, so their labels always help.
+const ALWAYS_LABELLED = new Set<EntityType>(["asn", "organization", "network", "malware"]);
+const HUB_DEGREE = 4;
 
 export function shortLabel(node: Pick<GraphNode, "type" | "value" | "attributes">): string {
   if (node.type === "certificate") {
@@ -65,14 +72,29 @@ export function buildView(graph: Graph, opts: ViewOptions): View {
     folded.set(parent, count);
   }
 
+  const visibleEdges = edges.filter((e) => !hidden.has(e.source) && !hidden.has(e.target));
+  const connected = new Set(visibleEdges.flatMap((e) => [e.source, e.target]));
+  // Hiding a type (certificates on large graphs) can leave nodes with no
+  // visible links; drawing them as a loose row adds nothing.
+  const isolated = byType.filter((n) => !hidden.has(n.id) && !connected.has(n.id) && !n.seed);
+  const isolatedIds = new Set(isolated.map((n) => n.id));
+
   const nodes: ViewNode[] = byType
-    .filter((n) => !hidden.has(n.id))
-    .map((n) => ({ ...n, label: shortLabel(n), folded: folded.get(n.id) ?? 0, degree: neighbours.get(n.id)?.size ?? 0 }));
+    .filter((n) => !hidden.has(n.id) && !isolatedIds.has(n.id))
+    .map((n) => {
+      const degree = neighbours.get(n.id)?.size ?? 0;
+      const fold = folded.get(n.id) ?? 0;
+      return {
+        ...n, label: shortLabel(n), folded: fold, degree,
+        important: n.seed || fold > 0 || degree >= HUB_DEGREE || ALWAYS_LABELLED.has(n.type),
+      };
+    });
   return {
     nodes,
-    edges: edges.filter((e) => !hidden.has(e.source) && !hidden.has(e.target)),
+    edges: visibleEdges,
     hiddenByType: graph.nodes.length - byType.length,
     hiddenByCollapse: hidden.size,
+    hiddenIsolated: isolated.length,
   };
 }
 

@@ -56,10 +56,10 @@ class InternetDbCollector(Collector):
             found.observe(target, "scan.hostname", host.value, **obs, confidence=0.6)
             found.relate(target, RelationType.ASSOCIATED_WITH, host, evidence_id=evidence,
                          confidence=0.6)
+        # CVEs stay observations, not graph nodes: an old server can carry
+        # hundreds of version-based guesses, which would bury the signals
+        # that matter in the graph. They still show in Threats and details.
         for cve in data.get("vulns", [])[:200]:
-            ref = found.entity(EntityType.INDICATOR, cve.upper(), kind="vulnerability")
             found.observe(target, "scan.possible_vulnerability", cve.upper(), **obs,
                           confidence=0.4)
-            found.relate(target, RelationType.ASSOCIATED_WITH, ref, evidence_id=evidence,
-                         confidence=0.4)
         return found

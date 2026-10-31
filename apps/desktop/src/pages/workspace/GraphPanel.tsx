@@ -97,10 +97,12 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
     const accent = themeColor("--accent");
     const inferred = themeColor("--inferred");
     const panel = themeColor("--panel");
+    const bg = themeColor("--bg");
     const elements: ElementDefinition[] = [
       ...view.nodes.map((n) => ({
         data: { id: `n${n.id}`, nid: n.id, label: n.folded ? `${n.label}  (+${n.folded})` : n.label,
-          color: clusterMode && clusters ? clusterColor(n.id) : TYPE_COLORS[n.type] ?? "#94a3b8", seed: n.seed ? 1 : 0, size: n.seed ? 34 : 14 + Math.min(n.degree, 12) },
+          color: clusterMode && clusters && !n.seed ? clusterColor(n.id) : TYPE_COLORS[n.type] ?? "#94a3b8", seed: n.seed ? 1 : 0,
+          important: n.important ? 1 : 0, size: n.seed ? 34 : 12 + Math.min(n.degree, 14) },
       })),
       ...view.edges.map((e) => ({
         data: { id: e.id, source: `n${e.source}`, target: `n${e.target}`, label: humanize(e.type),
@@ -125,12 +127,16 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
           label: "data(label)", color: fg, "font-size": 9, "text-valign": "bottom", "text-margin-y": 3,
           "text-max-width": "160px", "text-wrap": "ellipsis", "border-width": 0,
           "min-zoomed-font-size": 7,
+          // A thin outline in the background colour keeps labels legible over edges.
+          "text-outline-color": bg, "text-outline-width": 2, "text-outline-opacity": 0.85,
         } },
+        { selector: "node[important = 0]", style: { label: "" } },
+        { selector: "node.hover, node:selected, node.match, node.onpath", style: { label: "data(label)", "z-index": 20 } },
         { selector: "node[seed = 1]", style: { "border-width": 3, "border-color": fg, "font-size": 11, "font-weight": "bold" } },
         { selector: "node.match", style: { "border-width": 3, "border-color": accent, "z-index": 10 } },
         { selector: "node.faded, edge.faded", style: { opacity: 0.15 } },
         { selector: "node.onpath", style: { "border-width": 4, "border-color": "#facc15", opacity: 1 } },
-        { selector: "edge.onpath", style: { width: 4, "line-color": "#facc15", "target-arrow-color": "#facc15", opacity: 1, label: "data(label)", color: fg, "font-size": 9 } },
+        { selector: "edge.onpath", style: { width: 4, "line-color": "#facc15", "target-arrow-color": "#facc15", opacity: 1 } },
         { selector: "node:selected", style: { "border-width": 4, "border-color": accent } },
         { selector: "edge", style: {
           width: "data(width)", "line-color": line, "curve-style": "bezier",
@@ -153,8 +159,8 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
     });
     cy.on("tap", (evt) => { if (evt.target === cy) setSelection(null); });
     cy.on("dbltap", "node", (evt) => toggleCollapse(evt.target.data("nid")));
-    cy.on("mouseover", "edge", (evt) => evt.target.addClass("hover"));
-    cy.on("mouseout", "edge", (evt) => evt.target.removeClass("hover"));
+    cy.on("mouseover", "node, edge", (evt) => evt.target.addClass("hover"));
+    cy.on("mouseout", "node, edge", (evt) => evt.target.removeClass("hover"));
     cyRef.current = cy;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, themeVersion, clusterMode, clusters]);
@@ -196,7 +202,11 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
   const focusMatches = () => {
     const cy = cyRef.current;
     if (!cy || !matches.size) return;
-    const els = cy.nodes().filter((n) => matches.has(n.data("nid")));
+    // An exact value match wins, so "python.org" selects the domain rather
+    // than every subdomain containing it.
+    const wanted = query.trim().toLowerCase();
+    const exact = view.nodes.find((n) => n.value.toLowerCase() === wanted);
+    const els = exact ? cy.$id(`n${exact.id}`) : cy.nodes().filter((n) => matches.has(n.data("nid")));
     if (els.length === 1) {
       // Fitting a single node would zoom to its full size; centre instead.
       cy.animate({ center: { eles: els }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 200 });
@@ -261,6 +271,7 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
             {view.nodes.length} nodes · {view.edges.length} edges
             {view.hiddenByType > 0 && ` · ${view.hiddenByType} hidden by type`}
             {view.hiddenByCollapse > 0 && ` · ${view.hiddenByCollapse} folded`}
+            {view.hiddenIsolated > 0 && ` · ${view.hiddenIsolated} without visible links hidden`}
             {" "}· double-click a node to fold or unfold its leaf neighbours
           </div>
         </div>
@@ -343,8 +354,10 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
 function layoutFor(count: number): cytoscape.LayoutOptions {
   if (count > 700) return { name: "concentric", concentric: (n: cytoscape.NodeSingular) => n.degree(false), levelWidth: () => 3, animate: false } as cytoscape.LayoutOptions;
   return {
-    name: "cose", animate: false, randomize: true, nodeRepulsion: () => 9000, idealEdgeLength: () => 70,
-    numIter: count > 300 ? 600 : 1200, padding: 30,
+    name: "cose", animate: false, randomize: true, padding: 30,
+    nodeRepulsion: () => (count > 150 ? 16000 : 9000), idealEdgeLength: () => (count > 150 ? 90 : 70),
+    nodeOverlap: 20, componentSpacing: 80, gravity: 0.6,
+    numIter: count > 300 ? 800 : 1500,
   } as cytoscape.LayoutOptions;
 }
 

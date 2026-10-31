@@ -1,5 +1,5 @@
 import type {
-  Analytics, AuditEntry, Diff, EntityDetail, EntityRow, EvidenceItem, Graph, Investigation,
+  Analytics, AuditEntry, ThreatRow, Diff, EntityDetail, EntityRow, EvidenceItem, Graph, Investigation,
   InvestigationSummary, KeyStatus, Meta, PathResult, RunDetail, SearchResults, Settings,
   TimelineEvent, UpdateInfo,
 } from "./types";
@@ -93,6 +93,7 @@ export const api = {
   analytics: (id: string) => request<Analytics>(`/investigations/${enc(id)}/analytics`),
   path: (id: string, source: number, target: number, inferred: boolean) =>
     request<PathResult>(`/investigations/${enc(id)}/path${q({ source, target, inferred })}`),
+  threats: (id: string) => request<ThreatRow[]>(`/investigations/${enc(id)}/threats`),
   timeline: (id: string) => request<TimelineEvent[]>(`/investigations/${enc(id)}/timeline`),
   evidenceList: (id: string) => request<EvidenceItem[]>(`/investigations/${enc(id)}/evidence`),
   evidence: (id: string, evidenceId: string) =>
