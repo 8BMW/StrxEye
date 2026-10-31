@@ -31,7 +31,7 @@ command-line tool. All of them share one engine and one local database.
 <p align="center">
   <img src="docs/media/demo.gif" alt="Creating an investigation, collecting on an IP address, reviewing its threat signals, graph, timeline and report" width="900">
   <br>
-  <sub>45-second walkthrough recorded from the app (1.1.0): a new case, live collection on an IP from an alert, the botnet C2 hit in Threats, the Emotet profile from Malpedia in the Malware tab, the graph and the report. <a href="docs/media/demo.mp4">MP4 version</a>.</sub>
+  <sub>40-second walkthrough recorded from the app: a new case, live collection on an IP from an alert, the botnet C2 hit in Threats, the Emotet profile from Malpedia in the Malware tab, the graph and the report. <a href="docs/media/demo.mp4">MP4 version</a>.</sub>
 </p>
 
 ## Contents
@@ -131,7 +131,7 @@ command-line tool. All of them share one engine and one local database.
 ## Screenshots
 
 All screenshots come from the running app on data collected from the live sources
-listed below, at version 1.1.0. The demo cases are python.org's public
+listed below, at version 1.0.0. The demo cases are python.org's public
 infrastructure, two botnet C2 servers currently listed by abuse.ch with a Tor
 exit for comparison, and Cloudflare as a supplier.
 
@@ -202,7 +202,7 @@ under *System Settings → Privacy & Security* the first time.
 **Python (any OS, 3.12+):**
 
 ```bash
-pip install "strxeye[desktop] @ https://github.com/8BMW/StrxEye/releases/download/v1.1.0/strxeye-1.1.0-py3-none-any.whl"
+pip install "strxeye[desktop] @ https://github.com/8BMW/StrxEye/releases/download/v1.0.0/strxeye-1.0.0-py3-none-any.whl"
 strxeye-desktop
 ```
 
@@ -218,7 +218,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 ```
 
 ```powershell
-Get-FileHash .\STRX-EYE-Setup-1.1.0.exe -Algorithm SHA256
+Get-FileHash .\STRX-EYE-Setup-1.0.0.exe -Algorithm SHA256
 ```
 
 ## Quick start
@@ -351,8 +351,7 @@ application's reach.
   hosting is not shared ownership.
 - **Not code-signed yet:** SmartScreen and Gatekeeper warn on first launch.
 - **Not included yet:** pushing to TAXII servers, multi-user collaboration,
-  direct PDF export (print the HTML report instead), and the AI assistant
-  planned for a later release.
+  and direct PDF export (print the HTML report instead).
 
 ## Development
 

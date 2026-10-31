@@ -266,7 +266,10 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
           </div>
         </div>
         <div className="relative min-h-0 flex-1">
-          <div ref={container} className="absolute inset-0" data-testid="graph-canvas" />
+          {/* Inline style, not "absolute inset-0": Cytoscape injects an unlayered
+              position: relative rule that beats Tailwind's layered utilities and
+              would collapse the canvas to zero height. */}
+          <div ref={container} style={{ position: "absolute", inset: 0 }} data-testid="graph-canvas" />
           <div className="pointer-events-none absolute bottom-2 left-3 text-xxs text-muted">
             {view.nodes.length} nodes · {view.edges.length} edges
             {view.hiddenByType > 0 && ` · ${view.hiddenByType} hidden by type`}

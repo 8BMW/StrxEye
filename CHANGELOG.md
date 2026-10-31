@@ -6,88 +6,11 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
-## [1.1.0] - 2026-10-31
-
-### Added
-
-- 11 new collectors, for 26 collectors and 44 external sources:
-  `mailsec` (MTA-STS, TLS-RPT, BIMI, DKIM), `hackertarget`, `urlscan`,
-  `ripestat` (routing, RPKI, abuse contact, geolocation estimate), `peeringdb`,
-  `robtex`, `greynoise`, `dnsbl` (6 DNS block lists), `malpedia`, `abusech`
-  (ThreatFox, URLhaus, MalwareBazaar; key required) and `abuseipdb` (key
-  required).
-- `threatfeeds` grows from 4 to 13 lists: FireHOL Level 1, ET compromised,
-  Binary Defense, IPsum, CINS Army, blocklist.de, GreenSnow and DShield, plus
-  phishing domains from Phishing Army and OpenPhish.
-- Guessed CVEs are checked against CISA KEV and scored with EPSS; the `tls`
-  collector checks the served certificate against abuse.ch SSLBL; the `http`
-  collector extracts analytics and ad account IDs.
-- Malware intelligence: `malware:Name` targets, threat-actor entities with
-  `attributed_to` links, automatic Malpedia expansion for any family a run
-  finds, a Malware tab and `strxeye investigate malware`.
-- Monitoring: watches re-collect targets on a schedule and turn changes into
-  alerts. Alerts page with an unread badge, monitoring controls on the Collect
-  tab, and `strxeye monitor add|list|pause|remove|run` and `strxeye alerts`.
-- Plugins: `strxeye plugins new` scaffolds a working plugin with a test; a
-  Plugins page lists installed plugins and trusts an exact version after
-  explicit confirmation.
-
-### Changed
-
-- Correlation rewritten: strong signals (tracking IDs, self-hosted
-  nameservers, registrant organisation) make "likely same operator" links;
-  shared IPs on CDNs, clouds and shared hosting, multi-tenant certificates,
-  DNS providers and privacy registrants are suppressed, and the graph lists
-  what was not linked and why. Independent signals combine as 1 − ∏(1 − w).
-- Threats view covers the new sources (AbuseIPDB, URLhaus, ThreatFox,
-  MalwareBazaar, KEV, GreyNoise, RPKI).
-- Database schema 3 and 4 (watches, alerts, collector target per
-  observation). Existing databases migrate on first open.
-
-### Fixed
-
-- Run comparison now matches (collector, target) pairs. Before, facts about
-  IPs that only the newer run expanded into were reported as changes.
-- Alerts from the same run are listed most severe first.
-
-## [1.0.1] - 2026-10-31
-
-### Added
-
-- Threats tab and `strxeye investigate threats`: block-list hits, OTX mentions,
-  VirusTotal detections and exposure signals in one list. Severity follows
-  fixed, documented rules per source.
-- Overview shows each investigation's entity composition and how many of its
-  entities are on block lists.
-- README screenshots and a demo video recorded from the app on real data.
-
-### Changed
-
-- Graph labels only the nodes that orient you (seeds, hubs, ASNs, networks,
-  organisations, malware); others show their label on hover or selection.
-  Nodes left with no visible links after filtering are hidden and counted.
-- "Find node" selects an exact match even when other nodes contain the text.
-- Entities are listed most-connected first; certificates show their names and
-  ASNs their holder next to the ID.
-- Lists of records (archive captures, passive DNS) display as short lists.
-- Collect page stacks the form above run history on screens narrower than
-  1536 px, and the run table no longer clips.
-
-### Fixed
-
-- OTX pulses for indicators OTX itself allow-lists (popular domains, public
-  resolvers) are no longer imported; python.org previously gained 400
-  unrelated malware nodes this way.
-- InternetDB CVE guesses no longer become graph nodes; one old server could add
-  200 of them. They remain as observations and in Threats, grouped per host.
-- "Expand discovered IPs" no longer shows as checked for targets it does not
-  apply to.
-
 ## [1.0.0] - 2026-10-31
 
 First public release.
 
-### Added
+### Desktop app and distribution
 
 - Windows desktop app (native window via WebView2) with an Inno Setup
   installer and a portable zip; Linux and macOS builds. Each build is
@@ -97,28 +20,56 @@ First public release.
   release's `SHA256SUMS.txt`. The check can be turned off.
 - Release workflow that builds all platforms, writes checksums and publishes
   the GitHub release from a version tag.
-- New collectors: `certspotter` (CT), `passive_dns` (mnemonic), `internetdb`
-  (Shodan), `threatfeeds` (Spamhaus DROP, Feodo Tracker, Tor exits, matched
-  locally), `otx` (AlienVault OTX), `virustotal` (requires a key) and `gleif`
-  (company registry).
-- New target types: file hashes and organisations (`org:Name`), and a
-  `malware` entity type.
+
+### Sources
+
+- 26 collectors covering 44 external sources. Beyond DNS, RDAP, crt.sh, ASN
+  and the Wayback Machine: `certspotter`, `passive_dns` (mnemonic),
+  `internetdb` (Shodan), `mailsec` (MTA-STS, TLS-RPT, BIMI, DKIM),
+  `hackertarget`, `urlscan`, `ripestat` (routing, RPKI, abuse contact,
+  geolocation estimate), `peeringdb`, `robtex`, `greynoise`, `dnsbl` (6 DNS
+  block lists), `otx`, `gleif`, `malpedia`, and with a key `virustotal`,
+  `abusech` (ThreatFox, URLhaus, MalwareBazaar) and `abuseipdb`.
+- `threatfeeds` matches 13 lists locally: Spamhaus DROP, Feodo Tracker, Tor
+  exits, FireHOL Level 1, ET compromised, Binary Defense, IPsum, CINS Army,
+  blocklist.de, GreenSnow, DShield, Phishing Army and OpenPhish.
+- Guessed CVEs are checked against CISA KEV and scored with EPSS; the `tls`
+  collector checks the served certificate against abuse.ch SSLBL; the `http`
+  collector extracts analytics and ad account IDs.
+- Target types for file hashes, organisations (`org:Name`) and malware
+  families (`malware:Name`).
 - API keys stored in the OS keychain (`strxeye keys`, Settings → API keys).
   Collectors whose key is missing are skipped.
-- Full-text search across all investigations, including raw evidence
-  (`strxeye search`, Search page).
-- Graph analytics: shortest path, clusters, most-connected entities
-  (`strxeye graph path|analyze`, graph panel).
-- Timeline of dated events (`strxeye investigate timeline`, Timeline tab).
+
+### Analysis
+
+- Threats tab and `strxeye investigate threats`: block-list hits, OTX
+  mentions, VirusTotal detections and exposure signals in one list, with
+  fixed, documented severity rules per source.
+- Malware intelligence: threat-actor entities with `attributed_to` links,
+  automatic Malpedia expansion for any family a run finds, a Malware tab and
+  `strxeye investigate malware`.
+- Correlation that separates strong signals (tracking IDs, self-hosted
+  nameservers, registrant organisation) from weak ones. Shared IPs on CDNs,
+  clouds and shared hosting, multi-tenant certificates, DNS providers and
+  privacy registrants are suppressed, and the graph lists what was not linked
+  and why. Independent signals combine as 1 − ∏(1 − w).
+- Monitoring: watches re-collect targets on a schedule and turn changes into
+  alerts, compared per (collector, target) pair. Alerts page with an unread
+  badge, and `strxeye monitor add|list|pause|remove|run` and `strxeye alerts`.
+- Full-text search across all investigations, including raw evidence.
+- Graph analytics (shortest path, clusters, most-connected entities) and a
+  timeline of dated events.
 - STIX 2.1 export with deterministic SCO identifiers; inferred links are
   excluded.
-- Domain expansion now also checks resolved IPs against threat lists and
-  InternetDB.
+- Plugins: `strxeye plugins new` scaffolds a working plugin with a test; a
+  Plugins page lists installed plugins and trusts an exact version after
+  explicit confirmation.
 
 ### Changed
 
-- Database schema version 2 (adds the search index). Existing databases are
-  migrated automatically on first open.
+- Database schema version 4. Databases from 0.1.0 migrate automatically on
+  first open.
 
 ## [0.1.0] - 2026-10-31
 
