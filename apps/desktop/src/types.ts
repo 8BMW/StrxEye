@@ -2,10 +2,11 @@
 
 export type EntityType =
   | "domain" | "ip" | "network" | "asn" | "organization" | "certificate"
-  | "url" | "technology" | "hash" | "indicator";
+  | "url" | "technology" | "hash" | "indicator" | "malware";
 
 export const ENTITY_TYPES: EntityType[] = [
   "domain", "ip", "network", "asn", "organization", "certificate", "url", "technology",
+  "hash", "indicator", "malware",
 ];
 
 export type CollectionStatus =
@@ -163,6 +164,7 @@ export interface CollectorInfo {
   accepts: EntityType[];
   sources: string[];
   direct: boolean;
+  requires_key: string | null;
 }
 
 export interface Settings {
@@ -176,6 +178,7 @@ export interface Settings {
     max_expansions: number;
   };
   plugins: { trusted: string[] };
+  updates: { check_on_start: boolean; repository: string };
 }
 
 export interface Meta {
@@ -210,4 +213,49 @@ export interface AuditEntry {
   action: string;
   investigation_id: string | null;
   detail: Record<string, unknown>;
+}
+
+export interface SearchHit {
+  investigation_id: string;
+  investigation: string;
+  snippet: string;
+}
+
+export interface SearchResults {
+  entities: (SearchHit & { id: number; type: EntityType; value: string })[];
+  observations: (SearchHit & { id: number; kind: string; source: string; collected_at: string;
+    entity_id: number; entity_type: EntityType; entity_value: string })[];
+  evidence: (SearchHit & { id: string; collector: string; locator: string; collected_at: string })[];
+}
+
+export interface TimelineEvent {
+  at: string;
+  event: string;
+  entity: string;
+  entity_type: EntityType;
+  source: string;
+  observation_id: number | null;
+  evidence_id: string | null;
+  detail: string | null;
+}
+
+export interface Analytics {
+  communities: { id: number; size: number; hub: string; types: Record<string, number> }[];
+  isolated: number;
+  most_connected: { id: number; type: EntityType; value: string; degree: number }[];
+  membership: Record<string, number>;
+}
+
+export interface PathResult { nodes: number[]; edges: string[]; length: number }
+
+export interface KeyStatus { name: string; description: string; source: string | null }
+
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  newer: boolean;
+  release_url: string;
+  notes: string;
+  installer_name: string | null;
+  can_self_install: boolean;
 }

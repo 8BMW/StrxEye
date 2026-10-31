@@ -8,9 +8,10 @@ import { href, navigate, useLoad, useRoute, WORKSPACE_TABS, type Route } from ".
 import { AuditPage } from "./pages/Audit";
 import { CollectorsPage } from "./pages/Collectors";
 import { Overview } from "./pages/Overview";
+import { SearchPage } from "./pages/Search";
 import { SettingsPage } from "./pages/Settings";
 import { Workspace } from "./pages/Workspace";
-import type { InvestigationSummary, Meta } from "./types";
+import type { InvestigationSummary, Meta, UpdateInfo } from "./types";
 
 export type ThemeChoice = "dark" | "light" | "system";
 
@@ -22,6 +23,7 @@ interface AppState {
   theme: ThemeChoice;
   setTheme: (t: ThemeChoice) => void;
   openNewInvestigation: () => void;
+  update: UpdateInfo | null;
 }
 
 const AppContext = createContext<AppState>(null as unknown as AppState);
@@ -49,6 +51,14 @@ export default function App() {
   const [theme, setThemeState] = useState<ThemeChoice>(readTheme);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+
+  // One update check per launch, only if the user has not turned it off.
+  const checkOnStart = meta.data?.settings.updates.check_on_start;
+  useEffect(() => {
+    if (!checkOnStart) return;
+    api.checkUpdate().then(setUpdate).catch(() => { /* offline or no releases: stay quiet */ });
+  }, [checkOnStart]);
 
   const setTheme = useCallback((t: ThemeChoice) => {
     setThemeState(t);
@@ -62,10 +72,13 @@ export default function App() {
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        navigate({ page: "search" });
       } else if (mod && e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         setNewOpen(true);
-      } else if (e.altKey && /^[1-6]$/.test(e.key) && route.page === "investigation") {
+      } else if (e.altKey && /^[1-7]$/.test(e.key) && route.page === "investigation") {
         e.preventDefault();
         navigate({ ...route, tab: WORKSPACE_TABS[Number(e.key) - 1], entity: undefined });
       }
@@ -82,12 +95,14 @@ export default function App() {
     theme,
     setTheme,
     openNewInvestigation: () => setNewOpen(true),
-  }), [meta.data, meta.reload, invs.data, invs.reload, theme, setTheme]);
+    update,
+  }), [meta.data, meta.reload, invs.data, invs.reload, theme, setTheme, update]);
 
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [
       { id: "new", label: "New investigation", hint: "Ctrl+Alt+N", run: () => setNewOpen(true) },
       { id: "go-overview", label: "Go to Overview", run: () => navigate({ page: "overview" }) },
+      { id: "go-search", label: "Search all investigations", hint: "Ctrl+Shift+F", run: () => navigate({ page: "search" }) },
       { id: "go-collectors", label: "Go to Collectors", run: () => navigate({ page: "collectors" }) },
       { id: "go-settings", label: "Go to Settings", run: () => navigate({ page: "settings" }) },
       { id: "go-audit", label: "Go to Audit log", run: () => navigate({ page: "audit" }) },
@@ -140,15 +155,18 @@ function Page({ route }: { route: Route }) {
       return <SettingsPage />;
     case "audit":
       return <AuditPage />;
+    case "search":
+      return <SearchPage key={route.q ?? ""} initial={route.q} />;
     default:
       return <Overview />;
   }
 }
 
 function Sidebar({ route, onPalette }: { route: Route; onPalette: () => void }) {
-  const { investigations, openNewInvestigation, theme, setTheme } = useApp();
+  const { investigations, openNewInvestigation, theme, setTheme, update, meta } = useApp();
   const nav: { route: Route; label: string; icon: string }[] = [
     { route: { page: "overview" }, label: "Overview", icon: "overview" },
+    { route: { page: "search" }, label: "Search", icon: "search" },
     { route: { page: "collectors" }, label: "Collectors", icon: "collectors" },
     { route: { page: "audit" }, label: "Audit log", icon: "audit" },
     { route: { page: "settings" }, label: "Settings", icon: "settings" },
@@ -202,8 +220,14 @@ function Sidebar({ route, onPalette }: { route: Route; onPalette: () => void }) 
           );
         })}
       </ul>
+      {update?.newer && (
+        <a href={href({ page: "settings" })} className="mx-3 mb-2 rounded border border-accent/50 bg-accent/10 px-3 py-2 text-xs hover:bg-accent/20">
+          <span className="font-semibold text-accent">Update available: {update.latest}</span>
+          <span className="block text-muted">You have {update.current}. Open Settings to install.</span>
+        </a>
+      )}
       <div className="flex items-center justify-between border-t border-line px-4 py-2 text-xxs text-muted">
-        <span>Local only · no telemetry</span>
+        <span>v{meta?.version} · local only · no telemetry</span>
         <button title="Toggle theme" aria-label="Toggle theme" className="hover:text-fg"
           onClick={() => setTheme(resolvedDark ? "light" : "dark")}>
           <Icon name={resolvedDark ? "sun" : "moon"} size={15} />

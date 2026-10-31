@@ -23,7 +23,9 @@ log = logging.getLogger(__name__)
 # on. Limited to IPs: that adds network ownership and ASN context, which is
 # what analysts nearly always want next, without fanning out across every
 # subdomain and nameserver.
-EXPANSION = {EntityType.DOMAIN: {EntityType.IP: ("reverse_dns", "asn", "rdap")}}
+EXPANSION = {EntityType.DOMAIN: {
+    EntityType.IP: ("reverse_dns", "asn", "rdap", "threatfeeds", "internetdb"),
+}}
 
 
 class EngineError(Exception):
@@ -71,10 +73,14 @@ def build_resolver(settings: Settings) -> dns.asyncresolver.Resolver:
 
 class Engine:
     def __init__(self, settings: Settings, store: Store | None = None,
-                 collectors: dict[str, Collector] | None = None):
+                 collectors: dict[str, Collector] | None = None,
+                 secret: Callable[[str], str | None] | None = None):
         self.settings = settings
         self.store = store
         self.collectors = collectors if collectors is not None else registry(settings)
+        if secret is None:
+            from .secrets import get_key as secret
+        self.secret = secret
 
     def select(self, target: EntityRef, options: RunOptions) -> list[Collector]:
         if options.collectors:
@@ -88,6 +94,12 @@ class Engine:
                 raise EngineError(f"{', '.join(unsupported)} cannot handle {target.type} targets")
         else:
             chosen = [c for c in self.collectors.values() if c.supports(target)]
+        missing = [c for c in chosen if c.requires_key and not self.secret(c.requires_key)]
+        if missing and options.collectors:
+            raise EngineError(
+                "; ".join(f"{c.name} needs an API key: strxeye keys set {c.requires_key}"
+                          for c in missing))
+        chosen = [c for c in chosen if c not in missing]
         direct_allowed = options.direct or self.settings.collection.allow_direct
         if not direct_allowed:
             explicit_direct = [c.name for c in chosen if c.direct and options.collectors]
@@ -129,7 +141,8 @@ class Engine:
             async with make_client(self.settings.network) as client:
                 ctx = CollectorContext(settings=self.settings, client=client,
                                        limiter=RateLimiter(0.2),
-                                       resolver=build_resolver(self.settings))
+                                       resolver=build_resolver(self.settings),
+                                       secret=self.secret)
                 await self._run_batch(ctx, [(c, target) for c in chosen], report,
                                       investigation_id, on_event, cancel)
                 if options.expand and not cancel.is_set():

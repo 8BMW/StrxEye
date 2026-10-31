@@ -40,3 +40,16 @@ async def test_direct_tls_and_http():
     assert any(o.kind == "tls.verified" and o.value for o in results["tls"].observations)
     assert results["http"].status in (CollectionStatus.OK, CollectionStatus.PARTIAL), \
         results["http"].error
+
+
+async def test_new_keyless_sources():
+    ip = await collect(EntityRef(type=EntityType.IP, value="1.1.1.1"), "internetdb", "threatfeeds")
+    assert ip["internetdb"].status is CollectionStatus.OK, ip["internetdb"].error
+    assert ip["threatfeeds"].status is CollectionStatus.OK, ip["threatfeeds"].error
+    dom = await collect(EntityRef(type=EntityType.DOMAIN, value="example.com"),
+                        "certspotter", "passive_dns", "otx")
+    for name, result in dom.items():
+        assert result.status in (CollectionStatus.OK, CollectionStatus.PARTIAL), \
+            (name, result.error)
+    org = await collect(EntityRef(type=EntityType.ORGANIZATION, value="Cloudflare"), "gleif")
+    assert any(o.kind == "registry.candidate" for o in org["gleif"].observations)

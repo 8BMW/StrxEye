@@ -25,6 +25,19 @@ class NotFoundError(LookupError):
     pass
 
 
+def _snippet(text: str, needle: str, context: int = 60) -> str:
+    """Context around the first match, with the match in [brackets].
+    Built here because FTS5's snippet() splits characters when used with
+    the trigram tokenizer."""
+    at = text.lower().find(needle.lower())
+    if at < 0:
+        return text[: context * 2]
+    start, end = max(0, at - context), min(len(text), at + len(needle) + context)
+    match_end = at + len(needle)
+    return (("…" if start else "") + text[start:at] + "[" + text[at:match_end] + "]"
+            + text[match_end:end] + ("…" if end < len(text) else ""))
+
+
 def _now() -> str:
     return utcnow().isoformat()
 
@@ -145,6 +158,7 @@ class Store:
     def delete_investigation(self, inv_id: str) -> None:
         inv_id = self.resolve_investigation_id(inv_id)
         with self._tx() as db:
+            db.execute("DELETE FROM search_index WHERE investigation_id = ?", (inv_id,))
             db.execute("DELETE FROM investigations WHERE id = ?", (inv_id,))
         self.audit("investigation.delete", inv_id, {})
         with self._lock:
@@ -348,6 +362,55 @@ class Store:
         rows = self._query("SELECT type, COUNT(*) AS n FROM entities WHERE investigation_id = ?"
                            " GROUP BY type", (inv_id,))
         return {r["type"]: r["n"] for r in rows}
+
+    # Search ---------------------------------------------------------------
+
+    def search(self, text: str, inv_id: str | None = None,
+               limit: int = 100) -> dict[str, list[dict[str, Any]]]:
+        """Substring search across entities, observations and evidence."""
+        text = text.strip()
+        if len(text) < 3:
+            raise ValueError("search needs at least 3 characters")
+        # Quote the input so FTS5 treats it as a literal, not query syntax.
+        match = '"' + text.replace('"', '""') + '"'
+        sql = ("SELECT kind, investigation_id, ref, text FROM search_index"
+               " WHERE search_index MATCH ?")
+        params: list[Any] = [match]
+        if inv_id:
+            sql += " AND investigation_id = ?"
+            params.append(inv_id)
+        hits = self._query(sql + " ORDER BY rank LIMIT ?", (*params, limit * 3))
+        names = {r["id"]: r["name"] for r in self._query("SELECT id, name FROM investigations")}
+        out: dict[str, list[dict[str, Any]]] = {"entities": [], "observations": [], "evidence": []}
+        seen: set[tuple] = set()
+        for hit in hits:
+            base = {"investigation_id": hit["investigation_id"],
+                    "investigation": names.get(hit["investigation_id"]),
+                    "snippet": _snippet(hit["text"], text)}
+            if hit["kind"] == "entity" and len(out["entities"]) < limit:
+                rows = self._query("SELECT id, type, value FROM entities WHERE id = ?",
+                                   (hit["ref"],))
+                if rows:
+                    out["entities"].append({**base, **dict(rows[0])})
+            elif hit["kind"] == "observation" and len(out["observations"]) < limit:
+                rows = self._query(
+                    "SELECT o.id, o.kind, o.source, o.collected_at, e.id AS entity_id,"
+                    " e.type AS entity_type, e.value AS entity_value FROM observations o"
+                    " JOIN entities e ON e.id = o.entity_id WHERE o.id = ?", (hit["ref"],))
+                # The same value recorded by several runs is one result.
+                key = (hit["investigation_id"], rows[0]["entity_id"], rows[0]["kind"],
+                       hit["text"]) if rows else None
+                if rows and key not in seen:
+                    seen.add(key)
+                    out["observations"].append({**base, **dict(rows[0])})
+            elif hit["kind"] == "evidence" and len(out["evidence"]) < limit:
+                rows = self._query(
+                    "SELECT id, collector, locator, collected_at FROM evidence"
+                    " WHERE investigation_id = ? AND id = ?",
+                    (hit["investigation_id"], hit["ref"]))
+                if rows:
+                    out["evidence"].append({**base, **dict(rows[0])})
+        return out
 
     # Audit ----------------------------------------------------------------
 

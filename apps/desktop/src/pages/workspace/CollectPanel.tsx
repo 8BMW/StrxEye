@@ -21,11 +21,18 @@ export function CollectPanel({ inv, reload }: PanelProps) {
   const [inspect, setInspect] = useState<string | null>(null);
 
   const type = guessTargetType(target);
+  const [keySet, setKeySet] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    api.keys().then((ks) => setKeySet(new Set(ks.filter((k) => k.source).map((k) => k.name))))
+      .catch(() => setKeySet(new Set()));
+  }, []);
   const applicable = useMemo(
     () => (meta?.collectors ?? []).filter((c) => type && c.accepts.includes(type as CollectorInfo["accepts"][number])),
     [meta, type],
   );
-  const selected = applicable.filter((c) => !excluded.has(c.name) && (!c.direct || allowDirect));
+  const usable = (c: CollectorInfo) => (!c.direct || allowDirect)
+    && (c.requires_key === null || keySet.has(c.requires_key));
+  const selected = applicable.filter((c) => !excluded.has(c.name) && usable(c));
 
   // Poll the active run until it leaves the "running" state.
   const reloadRef = useRef(reload);
@@ -63,7 +70,7 @@ export function CollectPanel({ inv, reload }: PanelProps) {
       const names = selected.map((c) => c.name);
       const { run_id } = await api.startRun(inv.id, {
         target,
-        collectors: names.length === applicable.filter((c) => !c.direct || allowDirect).length ? undefined : names,
+        collectors: names.length === applicable.filter(usable).length ? undefined : names,
         direct: allowDirect,
         expand: expand && type === "domain",
       });
@@ -84,10 +91,10 @@ export function CollectPanel({ inv, reload }: PanelProps) {
             <label htmlFor="target" className="label">Target</label>
             <div className="flex gap-2">
               <input id="target" className="input mono" value={target} onChange={(e) => setTarget(e.target.value)}
-                placeholder="example.com, 1.1.1.1, AS13335 or https://…" autoComplete="off" spellCheck={false} disabled={running} />
+                placeholder="example.com, 1.1.1.1, AS13335, a file hash, or org:Company" autoComplete="off" spellCheck={false} disabled={running} />
             </div>
             <div className="h-4 text-xxs text-muted">
-              {target && (type ? <>Detected: <TypeBadge type={type} /></> : "Not recognised as a domain, IP, AS number or URL")}
+              {target && (type ? <>Detected: <TypeBadge type={type} /></> : "Not recognised. Companies need the org: prefix, e.g. org:Cloudflare")}
             </div>
           </div>
 
@@ -98,7 +105,8 @@ export function CollectPanel({ inv, reload }: PanelProps) {
             <fieldset className="space-y-1.5">
               <legend className="label mb-1">Collectors</legend>
               {applicable.map((c) => {
-                const blocked = c.direct && !allowDirect;
+                const needsKey = c.requires_key !== null && !keySet.has(c.requires_key);
+                const blocked = (c.direct && !allowDirect) || needsKey;
                 return (
                   <label key={c.name} className={`flex items-start gap-2 rounded border border-line px-2.5 py-1.5 ${blocked ? "opacity-50" : ""}`}>
                     <input type="checkbox" className="mt-0.5 accent-[rgb(var(--accent))]" disabled={blocked || running}
@@ -111,6 +119,7 @@ export function CollectPanel({ inv, reload }: PanelProps) {
                     <span className="flex-1">
                       <span className="font-medium">{c.title}</span>
                       {c.direct && <span className="chip ml-2 border-warn/50 text-warn">direct</span>}
+                      {needsKey && <a href="#/settings" className="chip ml-2 border-line text-muted hover:text-accent">needs API key</a>}
                       <span className="block text-xxs text-muted">{c.direct ? "Connects to the target's servers" : `Queries ${c.sources.join(", ")}`}</span>
                     </span>
                   </label>

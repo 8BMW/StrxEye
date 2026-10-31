@@ -73,9 +73,15 @@ def parse_target(raw: str, expected: EntityType | None = None) -> EntityRef:
         return EntityRef(type=EntityType.IP, value=normalize_ip(text))
     if expected is EntityType.ASN:
         return EntityRef(type=EntityType.ASN, value=normalize_asn(text))
+    if expected is EntityType.ORGANIZATION:
+        return EntityRef(type=EntityType.ORGANIZATION, value=normalize_org(text))
+    if expected is EntityType.HASH:
+        return EntityRef(type=EntityType.HASH, value=normalize_hash(text))
     if expected is not None and expected is not EntityType.URL:
         raise TargetError(f"direct input of type '{expected}' is not supported")
 
+    if text.lower().startswith("org:"):
+        return EntityRef(type=EntityType.ORGANIZATION, value=normalize_org(text[4:]))
     if "://" in text or expected is EntityType.URL:
         return EntityRef(type=EntityType.URL, value=normalize_url(text))
 
@@ -92,8 +98,23 @@ def parse_target(raw: str, expected: EntityType | None = None) -> EntityRef:
         return EntityRef(type=EntityType.DOMAIN, value=normalize_domain(text))
     except TargetError:
         raise TargetError(
-            f"could not recognise '{raw}' as a domain, IP address, AS number, URL or hash"
+            f"could not recognise '{raw}' as a domain, IP address, AS number, URL or hash "
+            "(prefix company names with org:)"
         ) from None
+
+
+def normalize_org(raw: str) -> str:
+    value = " ".join(raw.split())
+    if len(value) < 2 or len(value) > 200:
+        raise TargetError("organisation names must be 2 to 200 characters")
+    return value
+
+
+def normalize_hash(raw: str) -> str:
+    value = raw.strip().lower()
+    if len(value) not in _HASH_LENGTHS or not _HEX.match(value):
+        raise TargetError(f"'{raw}' is not an MD5, SHA-1, SHA-256 or SHA-512 hash")
+    return value
 
 
 def normalize_url(raw: str) -> str:

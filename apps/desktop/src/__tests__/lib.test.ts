@@ -23,6 +23,7 @@ describe("guessTargetType", () => {
     ["AS13335", "asn"],
     ["https://example.com/x", "url"],
     ["d41d8cd98f00b204e9800998ecf8427e", "hash"],
+    ["org:Cloudflare", "organization"],
     ["not a target", null],
   ])("%s -> %s", (input, expected) => {
     expect(guessTargetType(input)).toBe(expected);

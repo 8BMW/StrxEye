@@ -1,6 +1,7 @@
 import type {
-  AuditEntry, Diff, EntityDetail, EntityRow, EvidenceItem, Graph, Investigation,
-  InvestigationSummary, Meta, RunDetail, Settings,
+  Analytics, AuditEntry, Diff, EntityDetail, EntityRow, EvidenceItem, Graph, Investigation,
+  InvestigationSummary, KeyStatus, Meta, PathResult, RunDetail, SearchResults, Settings,
+  TimelineEvent, UpdateInfo,
 } from "./types";
 
 export class ApiError extends Error {
@@ -61,6 +62,15 @@ export const api = {
   changeSetting: (key: string, value: string) =>
     request<Settings>("/settings", { method: "PATCH", body: JSON.stringify({ key, value }) }),
 
+  keys: () => request<KeyStatus[]>("/keys"),
+  setKey: (name: string, value: string) =>
+    request<void>(`/keys/${enc(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),
+  deleteKey: (name: string) => request<void>(`/keys/${enc(name)}`, { method: "DELETE" }),
+  checkUpdate: (force = false) => request<UpdateInfo>(`/update${q({ force: force || undefined })}`),
+  installUpdate: () => request<{ installing: string }>("/update/install", { method: "POST" }),
+  search: (text: string, investigation?: string) =>
+    request<SearchResults>(`/search${q({ q: text, investigation })}`),
+
   investigations: () => request<InvestigationSummary[]>("/investigations"),
   createInvestigation: (name: string, description: string) =>
     request<Investigation>("/investigations", { method: "POST", body: JSON.stringify({ name, description }) }),
@@ -80,6 +90,10 @@ export const api = {
     request<EntityRow[]>(`/investigations/${enc(id)}/entities${q(params)}`),
   entity: (id: string, entityId: number) => request<EntityDetail>(`/investigations/${enc(id)}/entities/${entityId}`),
   graph: (id: string, inferred: boolean) => request<Graph>(`/investigations/${enc(id)}/graph${q({ inferred })}`),
+  analytics: (id: string) => request<Analytics>(`/investigations/${enc(id)}/analytics`),
+  path: (id: string, source: number, target: number, inferred: boolean) =>
+    request<PathResult>(`/investigations/${enc(id)}/path${q({ source, target, inferred })}`),
+  timeline: (id: string) => request<TimelineEvent[]>(`/investigations/${enc(id)}/timeline`),
   evidenceList: (id: string) => request<EvidenceItem[]>(`/investigations/${enc(id)}/evidence`),
   evidence: (id: string, evidenceId: string) =>
     request<EvidenceItem>(`/investigations/${enc(id)}/evidence/${enc(evidenceId)}`),

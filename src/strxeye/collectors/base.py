@@ -9,6 +9,7 @@ Exceptions are reserved for real failures and become ERROR results.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
@@ -38,6 +39,9 @@ class CollectorContext:
     # Shared per-run cache for things like RDAP bootstrap files, so ten
     # collectors in one run do not download them ten times.
     cache: dict[str, Any] = field(default_factory=dict)
+    # Looks up an API key by name (see strxeye.secrets). Injected so tests
+    # and the engine control where keys come from.
+    secret: Callable[[str], str | None] = lambda name: None
 
 
 class Findings:
@@ -134,6 +138,8 @@ class Collector(ABC):
     sources: ClassVar[tuple[str, ...]] = ()
     # True when the collector connects to the target's own infrastructure.
     direct: ClassVar[bool] = False
+    # Name of an API key (strxeye.secrets) the collector cannot work without.
+    requires_key: ClassVar[str | None] = None
 
     def supports(self, target: EntityRef) -> bool:
         return target.type in self.accepts
@@ -151,4 +157,5 @@ class Collector(ABC):
             "accepts": sorted(t.value for t in cls.accepts),
             "sources": list(cls.sources),
             "direct": cls.direct,
+            "requires_key": cls.requires_key,
         }

@@ -41,6 +41,13 @@ class CollectionSettings(BaseModel):
     max_expansions: int = Field(default=25, ge=0, le=500)
 
 
+class UpdateSettings(BaseModel):
+    # One unauthenticated GET to the GitHub releases API at start-up. It
+    # sends no investigation data; turn it off for fully offline use.
+    check_on_start: bool = True
+    repository: str = Field(default="8BMW/StrxEye", pattern=r"^[\w.-]+/[\w.-]+$")
+
+
 class PluginSettings(BaseModel):
     trusted: list[str] = Field(default_factory=list)
 
@@ -50,6 +57,7 @@ class Settings(BaseModel):
     dns: DnsSettings = Field(default_factory=DnsSettings)
     collection: CollectionSettings = Field(default_factory=CollectionSettings)
     plugins: PluginSettings = Field(default_factory=PluginSettings)
+    updates: UpdateSettings = Field(default_factory=UpdateSettings)
 
 
 def home_override() -> Path | None:
@@ -63,6 +71,10 @@ def config_dir() -> Path:
 
 def data_dir() -> Path:
     return home_override() or Path(platformdirs.user_data_dir(APP_NAME, appauthor=False))
+
+
+def cache_dir() -> Path:
+    return data_dir() / "cache"
 
 
 def config_path() -> Path:
