@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>{{ investigation.name }} - STRX EYE report</title>
+<style>
+  :root { --fg:#0f172a; --muted:#475569; --line:#e2e8f0; --accent:#0891b2; --bg:#fff;
+          --high:#b91c1c; --medium:#b45309; --low:#0369a1; --info:#475569; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg);
+         background: var(--bg); margin: 0 auto; max-width: 1100px; padding: 32px 24px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 36px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  h3 { font-size: 14px; margin: 20px 0 6px; font-family: ui-monospace, Consolas, monospace; }
+  .meta, .muted { color: var(--muted); }
+  .label { display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+           letter-spacing: .04em; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
+  .fact { color: #047857; } .inferred { color: #7c3aed; } .interp { color: #b45309; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; }
+  th, td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.v { font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-word; }
+  pre { margin: 0; white-space: pre-wrap; font: 12px ui-monospace, Consolas, monospace; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .stat { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 20px; }
+  .sev-high { color: var(--high); } .sev-medium { color: var(--medium); }
+  .sev-low { color: var(--low); } .sev-info { color: var(--info); }
+  .note { background: #f8fafc; border-left: 3px solid var(--accent); padding: 8px 12px; margin: 8px 0; }
+  @media print { body { padding: 0; } h2 { break-after: avoid; } tr { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="muted">STRX EYE investigation report</div>
+  <h1>{{ investigation.name }}</h1>
+  <div class="meta">Investigation {{ investigation.id }} &middot; generated {{ generated_at }} (UTC) by {{ generator }}</div>
+  {% if investigation.description %}<p>{{ investigation.description }}</p>{% endif %}
+</header>
+
+<div class="note">
+  This report separates three kinds of content.
+  <span class="label fact">Observation</span> is what a named source returned at the stated time.
+  <span class="label inferred">Inferred</span> is a link suggested by STRX EYE from several observations.
+  <span class="label interp">Interpretation</span> is a fixed rule applied to observations.
+  Only observations are facts reported by sources.
+</div>
+
+<h2>Executive summary</h2>
+<div class="stats">
+  {% for type, n in summary.entities.items() %}<div class="stat"><b>{{ n }}</b>{{ type }}</div>{% endfor %}
+  <div class="stat"><b>{{ summary.observations }}</b>observations</div>
+  <div class="stat"><b>{{ summary.relationships }}</b>observed relationships</div>
+  <div class="stat"><b>{{ summary.inferred_relationships }}</b>inferred relationships</div>
+</div>
+{% if interpretations %}
+<p>{{ interpretations|length }} rule-based interpretation(s), highest severity first:</p>
+<ul>{% for i in interpretations[:8] %}<li><span class="sev-{{ i.severity }}">{{ i.severity }}</span> &middot; {{ i.entity }}: {{ i.title }}</li>{% endfor %}</ul>
+{% else %}
+<p>No rule-based interpretations were triggered by the collected observations.</p>
+{% endif %}
+{% if summary.collector_problems %}<p class="sev-medium">{{ summary.collector_problems }} collector result(s) were incomplete; see Limitations.</p>{% endif %}
+
+<h2>Scope</h2>
+<table>
+  <tr><th>Seed</th></tr>
+  {% for s in scope.seeds %}<tr><td class="v">{{ s.type }}:{{ s.value }}</td></tr>{% endfor %}
+</table>
+<table>
+  <tr><th>Run</th><th>Target</th><th>Started (UTC)</th><th>Status</th><th>Options</th></tr>
+  {% for r in scope.runs %}<tr><td class="v">{{ r.id }}</td><td class="v">{{ r.target }}</td><td>{{ r.started_at }}</td><td>{{ r.status }}</td><td class="v">{{ r.options|tojson_pretty }}</td></tr>{% endfor %}
+</table>
+<p>{% if scope.direct_contact %}At least one run contacted the target's own servers (direct collection: HTTP and/or TLS).{% else %}Collection was passive: only third-party public sources were queried; the target's servers were not contacted.{% endif %}</p>
+
+<h2>Methodology</h2>
+<table>
+  <tr><th>Collector</th><th>What it collects</th><th>Sources queried</th><th>Direct</th></tr>
+  {% for c in methodology %}<tr><td class="v">{{ c.name }} {{ c.version }}</td><td>{{ c.description }}</td><td>{{ (c.sources or [])|join(", ") }}</td><td>{{ "yes" if c.direct else "no" }}</td></tr>{% endfor %}
+</table>
+
+<h2><span class="label interp">Interpretation</span> Findings and recommendations</h2>
+{% if interpretations %}
+<table>
+  <tr><th>Severity</th><th>Entity</th><th>Finding</th><th>Recommendation</th><th>Based on</th></tr>
+  {% for i in interpretations %}<tr><td class="sev-{{ i.severity }}">{{ i.severity }}</td><td class="v">{{ i.entity }}</td><td><b>{{ i.title }}</b><br>{{ i.detail }}</td><td>{{ i.recommendation }}</td><td class="v">{% for b in i.basis %}{{ b.kind }} ({{ b.source }}, {{ b.collected_at }})<br>{% endfor %}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="muted">None.</p>{% endif %}
+
+<h2><span class="label fact">Observation</span> Collected data by entity</h2>
+{% for entity, rows in findings.items() %}
+<h3>{{ entity }}</h3>
+<table>
+  <tr><th style="width:22%">Kind</th><th>Value</th><th style="width:12%">Source</th><th style="width:19%">Collected (UTC)</th><th style="width:7%">Conf.</th><th style="width:10%">Evidence</th></tr>
+  {% for o in rows %}<tr><td class="v">{{ o.kind }}</td><td class="v">{% if o.value is string %}{{ o.value }}{% else %}<pre>{{ o.value|tojson_pretty }}</pre>{% endif %}</td><td>{{ o.source }}</td><td>{{ o.collected_at }}</td><td>{{ o.confidence }}</td><td class="v">{{ (o.evidence_id or "")[:12] }}</td></tr>{% endfor %}
+</table>
+{% endfor %}
+
+<h2><span class="label fact">Observation</span> Relationships</h2>
+<table>
+  <tr><th>Source</th><th>Relationship</th><th>Target</th><th>Conf.</th><th>Reported by</th></tr>
+  {% for r in relationships %}<tr><td class="v">{{ r.source }}</td><td>{{ r.type }}</td><td class="v">{{ r.target }}</td><td>{{ r.confidence }}</td><td>{{ r.provenance|map(attribute="origin")|unique|join(", ") }}</td></tr>{% endfor %}
+</table>
+
+<h2><span class="label inferred">Inferred</span> Suggested relationships</h2>
+{% if inferred %}
+<table>
+  <tr><th>Source</th><th>Relationship</th><th>Target</th><th>Conf.</th><th>Why</th></tr>
+  {% for r in inferred %}<tr><td class="v">{{ r.source }}</td><td>{{ r.type }}</td><td class="v">{{ r.target }}</td><td>{{ r.confidence }}</td><td>{{ r.explanation }}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="muted">None.</p>{% endif %}
+
+<h2>Limitations</h2>
+<ul>
+  <li>Absence of data from a source does not mean the data does not exist; sources have gaps, rate limits and delays.</li>
+  <li>DNS answers depend on the resolver used and can differ by location and time.</li>
+  <li>Subdomains from Certificate Transparency prove a certificate was issued for the name, not that it resolves today.</li>
+  <li>Registration data is self-reported and often redacted; personal contact data is intentionally not collected.</li>
+</ul>
+{% if limitations %}
+<table>
+  <tr><th>Run</th><th>Collector</th><th>Target</th><th>Status</th><th>Detail</th></tr>
+  {% for p in limitations %}<tr><td class="v">{{ p.run }}</td><td>{{ p.collector }}</td><td class="v">{{ p.target }}</td><td>{{ p.status }}</td><td>{{ p.error or "" }}{% for n in p.notes %}<br>{{ n }}{% endfor %}</td></tr>{% endfor %}
+</table>
+{% endif %}
+
+<h2>Evidence index</h2>
+<p class="muted">Evidence IDs are SHA-256 digests of the stored raw response.</p>
+<table>
+  <tr><th>SHA-256</th><th>Collector</th><th>Request</th><th>Collected (UTC)</th><th>Bytes</th></tr>
+  {% for e in evidence %}<tr><td class="v">{{ e.id }}</td><td>{{ e.collector }}</td><td class="v">{{ e.locator }}</td><td>{{ e.collected_at }}</td><td>{{ e.size }}</td></tr>{% endfor %}
+</table>
+</body>
+</html>
