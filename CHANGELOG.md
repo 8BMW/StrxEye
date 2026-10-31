@@ -6,6 +6,50 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-31
+
+### Added
+
+- 11 new collectors, for 26 collectors and 44 external sources:
+  `mailsec` (MTA-STS, TLS-RPT, BIMI, DKIM), `hackertarget`, `urlscan`,
+  `ripestat` (routing, RPKI, abuse contact, geolocation estimate), `peeringdb`,
+  `robtex`, `greynoise`, `dnsbl` (6 DNS block lists), `malpedia`, `abusech`
+  (ThreatFox, URLhaus, MalwareBazaar; key required) and `abuseipdb` (key
+  required).
+- `threatfeeds` grows from 4 to 13 lists: FireHOL Level 1, ET compromised,
+  Binary Defense, IPsum, CINS Army, blocklist.de, GreenSnow and DShield, plus
+  phishing domains from Phishing Army and OpenPhish.
+- Guessed CVEs are checked against CISA KEV and scored with EPSS; the `tls`
+  collector checks the served certificate against abuse.ch SSLBL; the `http`
+  collector extracts analytics and ad account IDs.
+- Malware intelligence: `malware:Name` targets, threat-actor entities with
+  `attributed_to` links, automatic Malpedia expansion for any family a run
+  finds, a Malware tab and `strxeye investigate malware`.
+- Monitoring: watches re-collect targets on a schedule and turn changes into
+  alerts. Alerts page with an unread badge, monitoring controls on the Collect
+  tab, and `strxeye monitor add|list|pause|remove|run` and `strxeye alerts`.
+- Plugins: `strxeye plugins new` scaffolds a working plugin with a test; a
+  Plugins page lists installed plugins and trusts an exact version after
+  explicit confirmation.
+
+### Changed
+
+- Correlation rewritten: strong signals (tracking IDs, self-hosted
+  nameservers, registrant organisation) make "likely same operator" links;
+  shared IPs on CDNs, clouds and shared hosting, multi-tenant certificates,
+  DNS providers and privacy registrants are suppressed, and the graph lists
+  what was not linked and why. Independent signals combine as 1 − ∏(1 − w).
+- Threats view covers the new sources (AbuseIPDB, URLhaus, ThreatFox,
+  MalwareBazaar, KEV, GreyNoise, RPKI).
+- Database schema 3 and 4 (watches, alerts, collector target per
+  observation). Existing databases migrate on first open.
+
+### Fixed
+
+- Run comparison now matches (collector, target) pairs. Before, facts about
+  IPs that only the newer run expanded into were reported as changes.
+- Alerts from the same run are listed most severe first.
+
 ## [1.0.1] - 2026-10-31
 
 ### Added

@@ -107,6 +107,40 @@ async def fetch(
     raise FetchError(last_error)
 
 
+async def post(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    data: dict[str, str] | None = None,
+    json_body: dict | None = None,
+    headers: dict[str, str] | None = None,
+    retries: int = 2,
+    limiter: RateLimiter | None = None,
+) -> httpx.Response:
+    """POST with the same retry rules as fetch(). Used by APIs that only
+    accept form or JSON bodies (abuse.ch)."""
+    host = urlsplit(url).hostname or ""
+    last_error = ""
+    for attempt in range(retries + 1):
+        if limiter:
+            await limiter.wait(host)
+        try:
+            response = await client.post(url, data=data, json=json_body, headers=headers)
+        except httpx.TimeoutException:
+            last_error = f"timed out contacting {host}"
+        except httpx.TransportError as exc:
+            last_error = f"could not connect to {host}: {exc.__class__.__name__}"
+        else:
+            if response.is_success:
+                return response
+            last_error = f"{host} returned HTTP {response.status_code}"
+            if response.status_code not in RETRY_STATUSES:
+                break
+        if attempt < retries:
+            await asyncio.sleep(_backoff(attempt))
+    raise FetchError(last_error)
+
+
 def _backoff(attempt: int) -> float:
     return min(8.0, 0.5 * 2**attempt) + random.uniform(0, 0.25)  # noqa: S311 - jitter, not crypto
 

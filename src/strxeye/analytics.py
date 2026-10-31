@@ -183,6 +183,7 @@ def threats(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
                    if o["kind"] == "otx.allowlisted"}
     found: dict[tuple, dict[str, Any]] = {}
     cves: dict[tuple, tuple[dict[str, Any], set[str]]] = {}
+    kev: dict[tuple, tuple[dict[str, Any], list[str]]] = {}
 
     def add(obs, category, severity, summary):
         key = (obs["entity_type"], obs["entity_value"], category, summary)
@@ -217,8 +218,45 @@ def threats(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
             cves.setdefault((obs["entity_type"], obs["entity_value"]), (obs, set()))[1].add(value)
         elif kind == "tls.verified" and value is False:
             add(obs, "exposure", "medium", "served TLS certificate fails validation")
+        elif kind == "abuseipdb.report" and isinstance(value, dict):
+            score = int(value.get("abuseConfidenceScore") or 0)
+            if score >= 25:
+                add(obs, "reputation", "high" if score >= 75 else "medium",
+                    f"AbuseIPDB confidence {score}% from {value.get('totalReports')} reports")
+        elif kind == "urlhaus.host" and isinstance(value, dict) and value.get("url_count"):
+            add(obs, "malware", "high" if value.get("online") else "medium",
+                f"{value['url_count']} malware URL(s) in URLhaus, {value.get('online', 0)} online")
+        elif kind == "threatfox.ioc" and isinstance(value, dict):
+            conf = int(value.get("confidence_level") or 0)
+            add(obs, "malware", "high" if conf >= 75 else "medium",
+                f"ThreatFox IOC: {value.get('malware_printable')} "
+                f"({value.get('threat_type')}, confidence {conf}%)")
+        elif kind == "malwarebazaar.sample" and isinstance(value, dict):
+            add(obs, "malware", "high", "known malware sample in MalwareBazaar: "
+                f"{value.get('signature') or 'unclassified'} ({value.get('file_type')})")
+        elif kind == "vuln.kev" and isinstance(value, dict):
+            kev.setdefault((obs["entity_type"], obs["entity_value"]), (obs, []))[1].append(
+                value.get("cve", "?"))
+        elif kind == "greynoise.status" and isinstance(value, dict):
+            if value.get("classification") == "malicious":
+                add(obs, "reputation", "medium", "GreyNoise classifies it as a malicious scanner")
+            elif value.get("noise"):
+                add(obs, "reputation", "low", "mass-scans the internet (GreyNoise)")
+            elif value.get("riot"):
+                add(obs, "reputation", "info",
+                    f"known benign business service (GreyNoise RIOT: {value.get('name')})")
+        elif (kind == "routing.rpki" and isinstance(value, dict)
+              and value.get("status") == "invalid"):
+            add(obs, "exposure", "medium",
+                f"RPKI-invalid announcement of {value.get('prefix')} by {value.get('origin')} "
+                "(possible hijack or misconfiguration)")
     # An old server can carry hundreds of banner-based CVE guesses; one row
     # per host keeps them from burying the signals that matter.
+    for obs, ids in kev.values():
+        listed = sorted(set(ids))
+        add(obs, "exposure", "medium",
+            f"{len(listed)} of the guessed CVEs are in CISA's known-exploited catalogue: "
+            f"{', '.join(listed[:5])}{' …' if len(listed) > 5 else ''} (presence unverified)")
     for obs, ids in cves.values():
         listed = sorted(ids, reverse=True)
         more = f" and {len(listed) - 5} more" if len(listed) > 5 else ""
@@ -241,3 +279,37 @@ def _detail(kind: str, value: dict | None) -> str | None:
     if kind == "registry.candidate":
         return value.get("legal_name")
     return None
+
+
+def malware_view(graph: dict[str, Any], observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One entry per malware family in the investigation: its profile, the
+    actors it is attributed to, and the infrastructure linked to it, each
+    link with the sources that reported it."""
+    nodes = {n["id"]: n for n in graph["nodes"]}
+    profiles: dict[int, dict] = {}
+    for o in observations:
+        if o["kind"] == "malware.profile":
+            profiles[o["entity_id"]] = o["value"]
+    families = []
+    for node in graph["nodes"]:
+        if node["type"] != "malware":
+            continue
+        actors, infrastructure = [], []
+        for e in graph["edges"]:
+            if node["id"] not in (e["source"], e["target"]):
+                continue
+            other = nodes[e["target"] if e["source"] == node["id"] else e["source"]]
+            origins = sorted({p["origin"] for p in e.get("provenance", [])}) or ["correlation"]
+            link = {"id": other["id"], "type": other["type"], "value": other["value"],
+                    "relationship": e["type"], "confidence": e["confidence"],
+                    "inferred": e["inferred"], "sources": origins}
+            if other["type"] == "threat_actor":
+                actors.append(link)
+            else:
+                infrastructure.append(link)
+        families.append({
+            "id": node["id"], "name": node["value"], "attributes": node["attributes"],
+            "profile": profiles.get(node["id"]), "actors": actors,
+            "infrastructure": sorted(infrastructure, key=lambda x: (-x["confidence"], x["value"])),
+        })
+    return sorted(families, key=lambda f: (-len(f["infrastructure"]), f["name"]))

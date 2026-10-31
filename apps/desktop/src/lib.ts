@@ -11,9 +11,11 @@ export type Route =
   | { page: "collectors" }
   | { page: "settings" }
   | { page: "audit" }
-  | { page: "search"; q?: string };
+  | { page: "search"; q?: string }
+  | { page: "alerts" }
+  | { page: "plugins" };
 
-export const WORKSPACE_TABS = ["collect", "entities", "graph", "threats", "timeline", "evidence", "history", "report"] as const;
+export const WORKSPACE_TABS = ["collect", "entities", "graph", "threats", "malware", "timeline", "evidence", "history", "report"] as const;
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 
 export function parseRoute(hash: string): Route {
@@ -27,6 +29,8 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === "settings") return { page: "settings" };
   if (parts[0] === "audit") return { page: "audit" };
   if (parts[0] === "search") return { page: "search", q: parts[1] };
+  if (parts[0] === "alerts") return { page: "alerts" };
+  if (parts[0] === "plugins") return { page: "plugins" };
   return { page: "overview" };
 }
 
@@ -156,6 +160,7 @@ export const TYPE_COLORS: Record<EntityType, string> = {
   hash: "#94a3b8",
   indicator: "#ef4444",
   malware: "#dc2626",
+  threat_actor: "#be185d",
 };
 
 export const STATUS_CLASS: Record<CollectionStatus | string, string> = {
@@ -182,6 +187,7 @@ export function guessTargetType(raw: string): EntityType | "asn" | null {
   const t = raw.trim();
   if (!t) return null;
   if (/^org:\s*\S/i.test(t)) return "organization";
+  if (/^malware:\s*\S/i.test(t)) return "malware";
   if (/^https?:\/\//i.test(t)) return "url";
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(t) || (t.includes(":") && /^[0-9a-f:.[\]]+$/i.test(t))) return "ip";
   if (/^as\d+$/i.test(t)) return "asn";

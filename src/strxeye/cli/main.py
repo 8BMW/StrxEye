@@ -44,6 +44,10 @@ investigate_app = typer.Typer(no_args_is_help=True, help="Create, run and inspec
 graph_app = typer.Typer(no_args_is_help=True, help="Export investigation graphs.")
 plugins_app = typer.Typer(no_args_is_help=True, help="Discover and trust collector plugins.")
 config_app = typer.Typer(no_args_is_help=True, help="Show and change settings.")
+monitor_app = typer.Typer(no_args_is_help=True,
+                          help="Re-collect targets on a schedule and alert on changes.")
+alerts_app = typer.Typer(no_args_is_help=False, invoke_without_command=True,
+                         help="Show and acknowledge change alerts.")
 keys_app = typer.Typer(no_args_is_help=True,
                        help="Manage API keys (stored in the OS keychain, never in files).")
 app.add_typer(investigate_app, name="investigate")
@@ -51,6 +55,8 @@ app.add_typer(graph_app, name="graph")
 app.add_typer(plugins_app, name="plugins")
 app.add_typer(config_app, name="config")
 app.add_typer(keys_app, name="keys")
+app.add_typer(monitor_app, name="monitor")
+app.add_typer(alerts_app, name="alerts")
 
 out = Console(highlight=False, soft_wrap=False)
 err = Console(stderr=True, highlight=False)
@@ -223,6 +229,12 @@ def hash_(value: str, save: SaveOpt = None, json_: JsonOpt = False, verbose: Ver
 
 
 @app.command()
+def malware(name: str, save: SaveOpt = None, json_: JsonOpt = False, verbose: VerboseOpt = False):
+    """Profile a malware family (Malpedia) and, with an abuse.ch key, its infrastructure."""
+    _collect(name, EntityType.MALWARE, None, False, False, save, json_, verbose)
+
+
+@app.command()
 def search(
     text: str,
     case_id: Annotated[str | None, typer.Option("--in", help="Limit to one investigation.")] = None,
@@ -317,6 +329,136 @@ def keys_delete(name: str) -> None:
         raise fail(f"no {name} key was stored", EXIT_NOT_FOUND)
     Store(database_path()).audit("key.delete", None, {"name": name})
     out.print(f"Deleted {name} key.")
+
+
+# Monitoring ---------------------------------------------------------------------
+
+SEVERITY_STYLE = {"high": "red", "medium": "yellow", "low": "cyan", "info": "dim"}
+
+
+@monitor_app.command("add")
+def monitor_add(
+    case_id: str, target: str,
+    every: Annotated[str, typer.Option("--every", help="Interval such as 6h or 1d.")] = "24h",
+    direct: DirectOpt = False,
+    no_expand: Annotated[bool, typer.Option("--no-expand",
+                                            help="Do not expand domains to their IPs.")] = False,
+) -> None:
+    """Watch a target: re-collect it at an interval and alert on changes."""
+    from ..monitor import parse_interval
+
+    store = open_store()
+    inv_id = _resolve(store, case_id)
+    try:
+        ref = parse_target(target)
+        hours = parse_interval(every)
+    except (TargetError, ValueError) as exc:
+        raise fail(str(exc)) from None
+    watch_id = store.add_watch(inv_id, ref, hours, {"direct": direct, "expand": not no_expand})
+    out.print(f"Watching {ref.value} every {every} (watch {watch_id}). It runs while the app or "
+              "`strxeye serve` is open, or whenever `strxeye monitor run` is executed.")
+
+
+@monitor_app.command("list")
+def monitor_list(json_: JsonOpt = False) -> None:
+    """Show watches and when each runs next."""
+    rows = open_store().list_watches()
+    if json_:
+        out.print_json(json.dumps(rows, default=str))
+        return
+    if not rows:
+        out.print("No watches. Add one with: strxeye monitor add CASE example.com --every 24h")
+        return
+    table = Table(show_edge=False, pad_edge=False)
+    for col in ("id", "investigation", "target", "every", "next run (UTC)", "last result"):
+        table.add_column(col, overflow="fold")
+    for w in rows:
+        state = "" if w["enabled"] else " (paused)"
+        table.add_row(str(w["id"]), w["investigation"], w["target_value"] + state,
+                      f"{w['interval_hours']:g}h", w["next_run_at"][:16],
+                      w["last_error"] or ("ok" if w["last_run_at"] else "not run yet"))
+    out.print(table)
+
+
+@monitor_app.command("remove")
+def monitor_remove(watch_id: int) -> None:
+    """Stop watching a target."""
+    try:
+        open_store().delete_watch(watch_id)
+    except NotFoundError as exc:
+        raise fail(str(exc), EXIT_NOT_FOUND) from None
+    out.print(f"Removed watch {watch_id}.")
+
+
+@monitor_app.command("pause")
+def monitor_pause(watch_id: int, resume: Annotated[bool, typer.Option("--resume")] = False):
+    """Pause a watch (or --resume it)."""
+    try:
+        open_store().set_watch_enabled(watch_id, resume)
+    except NotFoundError as exc:
+        raise fail(str(exc), EXIT_NOT_FOUND) from None
+    out.print(f"Watch {watch_id} {'resumed' if resume else 'paused'}.")
+
+
+@monitor_app.command("run")
+def monitor_run(
+    now: Annotated[int | None, typer.Option("--now", help="Run this watch ID now.")] = None,
+    json_: JsonOpt = False,
+) -> None:
+    """Run every watch that is due. Schedule this with Task Scheduler, cron or
+    a systemd timer to monitor without the app open."""
+    from ..monitor import run_due, run_watch
+
+    store = open_store()
+    if now is not None:
+        try:
+            watch = store.get_watch(now)
+        except NotFoundError as exc:
+            raise fail(str(exc), EXIT_NOT_FOUND) from None
+        outcome = asyncio.run(run_watch(make_engine(store), store, watch))
+        results = [{"watch_id": now, "target": watch["target_value"], **outcome}]
+    else:
+        results = asyncio.run(run_due(make_engine(store), store))
+    if json_:
+        out.print_json(json.dumps(results, default=str))
+        return
+    if not results:
+        out.print("No watches are due.")
+    for r in results:
+        out.print(f"{r['target']}: run {r['run_id'] or '-'}, {r['alerts']} alert(s)"
+                  + (f" [yellow]({r['error']})[/yellow]" if r["error"] else ""))
+    unread = store.unread_alert_count()
+    if unread:
+        out.print(f"{unread} unread alert(s): strxeye alerts")
+
+
+@alerts_app.callback(invoke_without_command=True)
+def alerts_list(ctx: typer.Context,
+                all_: Annotated[bool, typer.Option("--all", help="Include read alerts.")] = False,
+                json_: JsonOpt = False) -> None:
+    """Show unread alerts (or --all)."""
+    if ctx.invoked_subcommand:
+        return
+    rows = open_store().list_alerts(unread_only=not all_)
+    if json_:
+        out.print_json(json.dumps(rows, default=str))
+        return
+    if not rows:
+        out.print("No unread alerts." if not all_ else "No alerts.")
+        return
+    for a in rows:
+        style = SEVERITY_STYLE.get(a["severity"], "")
+        out.print(f"[{style}]{a['severity']:6}[/{style}] {a['created_at'][:16]}  #{a['id']}  "
+                  f"{a['title']}  [dim]({a['investigation']})[/dim]")
+        if a["detail"].get("summary"):
+            out.print(f"         {a['detail']['summary']}")
+
+
+@alerts_app.command("read")
+def alerts_read(ids: Annotated[list[int] | None, typer.Argument()] = None) -> None:
+    """Mark alerts as read (all unread alerts if no IDs are given)."""
+    count = open_store().mark_alerts_read(ids or None)
+    out.print(f"Marked {count} alert(s) as read.")
 
 
 # Investigations ---------------------------------------------------------------
@@ -498,6 +640,32 @@ def investigate_threats(case_id: str, json_: JsonOpt = False) -> None:
     out.print(table)
 
 
+@investigate_app.command("malware")
+def investigate_malware(case_id: str, json_: JsonOpt = False) -> None:
+    """Malware families in an investigation, with attribution and infrastructure."""
+    from ..analytics import malware_view
+    from ..graph import build_graph
+
+    store = open_store()
+    inv_id = _resolve(store, case_id)
+    families = malware_view(build_graph(store, inv_id, False), store.all_observations(inv_id))
+    if json_:
+        out.print_json(json.dumps(families, default=str))
+        return
+    if not families:
+        out.print("No malware families in this investigation.")
+        return
+    for f in families:
+        profile = f["profile"] or {}
+        aliases = ", ".join(profile.get("aliases", [])[:5])
+        out.print(f"[bold]{f['name']}[/bold]" + (f"  aka {aliases}" if aliases else ""))
+        if f["actors"]:
+            out.print("  attributed to: " + ", ".join(a["value"] for a in f["actors"]))
+        for i in f["infrastructure"][:15]:
+            out.print(f"  {i['type']:8} {i['value']}  [dim]{i['relationship']}, "
+                      f"{', '.join(i['sources'])}, {i['confidence']:.0%}[/dim]")
+
+
 @investigate_app.command("delete")
 def investigate_delete(case_id: str, yes: Annotated[bool, typer.Option(
         "--yes", "-y", help="Do not ask for confirmation.")] = False) -> None:
@@ -645,6 +813,21 @@ def plugins_list(json_: JsonOpt = False) -> None:
     for r in rows:
         table.add_row(r["name"], r["distribution"], r["version"], "yes" if r["trusted"] else "no")
     out.print(table)
+
+
+@plugins_app.command("new")
+def plugins_new(name: str, directory: Annotated[Path, typer.Option(
+        "--dir", help="Where to create the package.")] = Path(".")) -> None:
+    """Create a ready-to-install collector plugin package with a passing test."""
+    from ..plugins import PluginError, scaffold
+
+    try:
+        root = scaffold(name, directory)
+    except PluginError as exc:
+        raise fail(str(exc)) from None
+    out.print(f"Created {root}")
+    out.print(f"Next: cd \"{root}\" && pip install -e \".[dev]\" && pytest && "
+              f"strxeye plugins trust {name}")
 
 
 @plugins_app.command("trust")

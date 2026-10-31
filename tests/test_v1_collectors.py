@@ -5,7 +5,7 @@ import pytest
 import respx
 
 from conftest import StaticCollector
-from strxeye.collectors import threatfeeds
+from strxeye.collectors import threatfeeds, vulnintel
 from strxeye.collectors.certspotter import CertSpotterCollector
 from strxeye.collectors.gleif import GleifCollector
 from strxeye.collectors.internetdb import InternetDbCollector
@@ -32,17 +32,40 @@ def test_org_and_hash_targets():
 
 
 @respx.mock
-async def test_internetdb(make_ctx):
+async def test_internetdb(make_ctx, monkeypatch, tmp_path):
+    monkeypatch.setattr(vulnintel, "cache_dir", lambda: tmp_path)
     respx.get("https://internetdb.shodan.io/45.155.205.20").mock(return_value=httpx.Response(
         200, json={"ip": IP.value, "ports": [443, 22], "hostnames": ["host.example.com"],
                    "cpes": ["cpe:/a:openbsd:openssh"], "tags": ["cloud"],
-                   "vulns": ["cve-2023-48795"]}))
+                   "vulns": ["cve-2023-48795", "cve-2021-44228"]}))
+    respx.get(vulnintel.KEV_URL).mock(return_value=httpx.Response(200, json={
+        "vulnerabilities": [{"cveID": "CVE-2021-44228", "vulnerabilityName": "Log4Shell",
+                             "dateAdded": "2021-12-10",
+                             "knownRansomwareCampaignUse": "Known"}]}))
+    respx.get(vulnintel.EPSS_URL).mock(return_value=httpx.Response(200, json={"data": [
+        {"cve": "CVE-2021-44228", "epss": "0.97"}, {"cve": "CVE-2023-48795", "epss": "0.5"}]}))
     found = await InternetDbCollector().collect(IP, make_ctx())
     kinds = {o.kind: o for o in found.observations}
     assert kinds["scan.open_ports"].value == [22, 443]
     vuln = kinds["scan.possible_vulnerability"]
-    assert vuln.value == "CVE-2023-48795" and vuln.confidence < 0.5
+    assert vuln.confidence < 0.5
+    assert kinds["vuln.kev"].value["cve"] == "CVE-2021-44228"
+    assert kinds["vuln.kev"].value["ransomware"] == "Known"
+    assert kinds["vuln.epss_top"].value[0] == {"cve": "CVE-2021-44228", "epss": 0.97}
     assert any(r.type is RelationType.USES_TECHNOLOGY for r in found.relationships)
+
+
+@respx.mock
+async def test_internetdb_survives_enrichment_outage(make_ctx, monkeypatch, tmp_path):
+    monkeypatch.setattr(vulnintel, "cache_dir", lambda: tmp_path)
+    monkeypatch.setattr("strxeye.net._backoff", lambda a: 0)
+    respx.get("https://internetdb.shodan.io/45.155.205.20").mock(return_value=httpx.Response(
+        200, json={"ip": IP.value, "ports": [80], "vulns": ["CVE-2023-48795"]}))
+    respx.get(vulnintel.KEV_URL).mock(return_value=httpx.Response(503))
+    respx.get(vulnintel.EPSS_URL).mock(return_value=httpx.Response(503))
+    found = await InternetDbCollector().collect(IP, make_ctx())
+    assert found.status is CollectionStatus.PARTIAL
+    assert any("KEV" in n for n in found.notes)
 
 
 @respx.mock
@@ -86,6 +109,10 @@ def feeds(monkeypatch, tmp_path):
     # A router of its own: routes added to respx's global router would leak
     # into later tests.
     with respx.mock(assert_all_called=False) as router:
+        # Every list answers empty unless a test needs a hit.
+        for feed in threatfeeds.FEEDS:
+            empty = "[]" if feed.kind == "feodo" else ""
+            router.get(feed.url).mock(return_value=httpx.Response(200, text=empty))
         router.get("https://www.spamhaus.org/drop/drop_v4.json").mock(
             return_value=httpx.Response(
                 200, text='{"cidr":"45.155.205.0/24","sblid":"SBL1","rir":"ripe"}\n'
@@ -96,6 +123,12 @@ def feeds(monkeypatch, tmp_path):
                                                     "port": 443}]))
         tor = router.get("https://check.torproject.org/torbulkexitlist").mock(
             return_value=httpx.Response(200, text="192.0.2.99\n"))
+        router.get("https://phishing.army/download/phishing_army_blocklist.txt").mock(
+            return_value=httpx.Response(200, text="# comment\nphish.example\n"))
+        router.get("https://openphish.com/feed.txt").mock(
+            return_value=httpx.Response(200, text="https://login.bad.example/x\n"))
+        router.get("https://feeds.dshield.org/block.txt").mock(return_value=httpx.Response(
+            200, text="Start\tEnd\tNetblock\tAttacks\n45.155.205.0\t45.155.205.255\t24\t300\tX\n"))
         yield tor
 
 
@@ -110,6 +143,21 @@ async def test_threatfeeds_hits_and_cache(make_ctx, feeds):
                for e in found.entities.values())
     # Second and third lookups came from the disk cache, not the network.
     assert feeds.call_count == 1
+
+
+async def test_threatfeeds_severity_and_domains(make_ctx, feeds):
+    found = await ThreatFeedCollector().collect(IP, make_ctx())
+    feeds_hit = {o.value["feed"]: o for o in found.observations if o.kind == "threat.listed"}
+    assert set(feeds_hit) == {"Spamhaus DROP (IPv4)", "DShield top attacking subnets"}
+    assert feeds_hit["DShield top attacking subnets"].value["severity"] == "low"
+    phish = await ThreatFeedCollector().collect(
+        EntityRef(type=EntityType.DOMAIN, value="phish.example"), make_ctx())
+    assert [o.value["feed"] for o in phish.observations] == ["Phishing Army"]
+    host = await ThreatFeedCollector().collect(
+        EntityRef(type=EntityType.DOMAIN, value="login.bad.example"), make_ctx())
+    hit = next(o.value for o in host.observations if o.kind == "threat.listed")
+    assert hit["feed"] == "OpenPhish community feed"
+    assert hit["example_url"] == "https://login.bad.example/x"
 
 
 async def test_threatfeeds_records_clean_result(make_ctx, feeds):

@@ -27,7 +27,8 @@ main protections, and where they live:
 | Spreadsheet formula injection | CSV values starting with `= + - @` are prefixed with `'`. | `reporting._csv_safe` |
 | Other local processes or web pages calling the API | Loopback-only bind, per-launch random token (constant-time comparison), Host header allow-list against DNS rebinding, `SameSite=Strict` HttpOnly cookie. | `server.py` |
 | Path traversal when serving the UI | Files are served only if the resolved path is inside the UI folder. | `server.py` |
-| Untrusted plugins | Installed plugins are not imported until trusted by name and exact version; upgrades must be trusted again. | `plugins.py` |
+| Untrusted plugins | Installed plugins are not imported until trusted by name and exact version; upgrades must be trusted again. Listing reads package metadata only. Trusting from the app requires typing the name and is refused if the installed version differs from the one shown. | `plugins.py`, `server.py` |
+| Keys sent to the wrong service | Each key is sent only to its own API host (abuse.ch, AbuseIPDB, VirusTotal, OTX) in that service's documented header. | `collectors/malware_intel.py`, `collectors/reputation.py` |
 | API keys leaking into files, logs or shell history | Keys live in the OS keychain (or an environment variable), are read through a hidden prompt, are write-only in the UI and API, and are never written to config, database, evidence or audit log. | `secrets.py` |
 | Tampered update downloads | The updater only downloads from `github.com/<repo>/releases/download/` and runs the installer only if its SHA-256 matches `SHA256SUMS.txt` from the same release. | `updater.py` |
 | Collecting more personal data than needed | RDAP personal contact fields and cookie values are never stored. | `collectors/rdap.py`, `collectors/website.py` |

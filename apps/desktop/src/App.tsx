@@ -5,7 +5,9 @@ import { LogoMark, Wordmark } from "./components/Logo";
 import { NewInvestigationDialog } from "./components/NewInvestigationDialog";
 import { ErrorBanner, Icon, Kbd, Spinner, ToastProvider } from "./components/ui";
 import { href, navigate, useLoad, useRoute, WORKSPACE_TABS, type Route } from "./lib";
+import { AlertsPage } from "./pages/Alerts";
 import { AuditPage } from "./pages/Audit";
+import { PluginsPage } from "./pages/Plugins";
 import { CollectorsPage } from "./pages/Collectors";
 import { Overview } from "./pages/Overview";
 import { SearchPage } from "./pages/Search";
@@ -24,6 +26,8 @@ interface AppState {
   setTheme: (t: ThemeChoice) => void;
   openNewInvestigation: () => void;
   update: UpdateInfo | null;
+  unreadAlerts: number;
+  refreshAlerts: () => void;
 }
 
 const AppContext = createContext<AppState>(null as unknown as AppState);
@@ -52,6 +56,17 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
+
+  // Watches run in the engine; poll the unread count so new alerts show up.
+  const refreshAlerts = useCallback(() => {
+    api.unreadAlerts().then((r) => setUnreadAlerts(r.unread)).catch(() => {});
+  }, []);
+  useEffect(() => {
+    refreshAlerts();
+    const timer = setInterval(refreshAlerts, 60_000);
+    return () => clearInterval(timer);
+  }, [refreshAlerts]);
 
   // One update check per launch, only if the user has not turned it off.
   const checkOnStart = meta.data?.settings.updates.check_on_start;
@@ -78,7 +93,7 @@ export default function App() {
       } else if (mod && e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         setNewOpen(true);
-      } else if (e.altKey && /^[1-8]$/.test(e.key) && route.page === "investigation") {
+      } else if (e.altKey && /^[1-9]$/.test(e.key) && route.page === "investigation") {
         e.preventDefault();
         navigate({ ...route, tab: WORKSPACE_TABS[Number(e.key) - 1], entity: undefined });
       }
@@ -96,7 +111,9 @@ export default function App() {
     setTheme,
     openNewInvestigation: () => setNewOpen(true),
     update,
-  }), [meta.data, meta.reload, invs.data, invs.reload, theme, setTheme, update]);
+    unreadAlerts,
+    refreshAlerts,
+  }), [meta.data, meta.reload, invs.data, invs.reload, theme, setTheme, update, unreadAlerts, refreshAlerts]);
 
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [
@@ -104,6 +121,8 @@ export default function App() {
       { id: "go-overview", label: "Go to Overview", run: () => navigate({ page: "overview" }) },
       { id: "go-search", label: "Search all investigations", hint: "Ctrl+Shift+F", run: () => navigate({ page: "search" }) },
       { id: "go-collectors", label: "Go to Collectors", run: () => navigate({ page: "collectors" }) },
+      { id: "go-alerts", label: "Go to Alerts", run: () => navigate({ page: "alerts" }) },
+      { id: "go-plugins", label: "Go to Plugins", run: () => navigate({ page: "plugins" }) },
       { id: "go-settings", label: "Go to Settings", run: () => navigate({ page: "settings" }) },
       { id: "go-audit", label: "Go to Audit log", run: () => navigate({ page: "audit" }) },
       { id: "theme-dark", label: "Theme: dark", run: () => setTheme("dark") },
@@ -157,17 +176,23 @@ function Page({ route }: { route: Route }) {
       return <AuditPage />;
     case "search":
       return <SearchPage key={route.q ?? ""} initial={route.q} />;
+    case "alerts":
+      return <AlertsPage />;
+    case "plugins":
+      return <PluginsPage />;
     default:
       return <Overview />;
   }
 }
 
 function Sidebar({ route, onPalette }: { route: Route; onPalette: () => void }) {
-  const { investigations, openNewInvestigation, theme, setTheme, update, meta } = useApp();
+  const { investigations, openNewInvestigation, theme, setTheme, update, meta, unreadAlerts } = useApp();
   const nav: { route: Route; label: string; icon: string }[] = [
     { route: { page: "overview" }, label: "Overview", icon: "overview" },
     { route: { page: "search" }, label: "Search", icon: "search" },
+    { route: { page: "alerts" }, label: "Alerts", icon: "bell" },
     { route: { page: "collectors" }, label: "Collectors", icon: "collectors" },
+    { route: { page: "plugins" }, label: "Plugins", icon: "plug" },
     { route: { page: "audit" }, label: "Audit log", icon: "audit" },
     { route: { page: "settings" }, label: "Settings", icon: "settings" },
   ];
@@ -193,7 +218,12 @@ function Sidebar({ route, onPalette }: { route: Route; onPalette: () => void }) 
               <a href={href(item.route)} aria-current={active ? "page" : undefined}
                 className={`flex items-center gap-2.5 rounded px-2.5 py-1.5 ${active ? "bg-accent/15 text-fg" : "text-muted hover:bg-raised hover:text-fg"}`}>
                 <Icon name={item.icon} />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {item.route.page === "alerts" && unreadAlerts > 0 && (
+                  <span className="rounded-full bg-bad px-1.5 text-xxs font-semibold text-white" aria-label={`${unreadAlerts} unread`}>
+                    {unreadAlerts > 99 ? "99+" : unreadAlerts}
+                  </span>
+                )}
               </a>
             </li>
           );

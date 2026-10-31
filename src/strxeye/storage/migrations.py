@@ -137,4 +137,41 @@ MIGRATIONS: list[str] = [
         VALUES (new.content, new.investigation_id, 'evidence', new.id);
     END;
     """,
+    # 3: monitoring. A watch re-collects a target on a schedule; each run is
+    # compared with the previous one and notable changes become alerts.
+    """
+    CREATE TABLE watches (
+        id INTEGER PRIMARY KEY,
+        investigation_id TEXT NOT NULL REFERENCES investigations(id) ON DELETE CASCADE,
+        target_type TEXT NOT NULL,
+        target_value TEXT NOT NULL,
+        interval_hours REAL NOT NULL,
+        options TEXT NOT NULL DEFAULT '{}',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        last_run_at TEXT,
+        last_run_id TEXT,
+        last_error TEXT,
+        next_run_at TEXT NOT NULL,
+        UNIQUE (investigation_id, target_type, target_value)
+    );
+    CREATE TABLE alerts (
+        id INTEGER PRIMARY KEY,
+        investigation_id TEXT NOT NULL REFERENCES investigations(id) ON DELETE CASCADE,
+        watch_id INTEGER REFERENCES watches(id) ON DELETE SET NULL,
+        run_id TEXT,
+        created_at TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        title TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '{}',
+        read_at TEXT
+    );
+    CREATE INDEX alerts_unread ON alerts(read_at, created_at);
+    """,
+    # 4: remember which target each observation's collector run was for, so
+    # run comparisons can match (collector, target) pairs exactly. Older rows
+    # keep NULL and are compared by collector name only.
+    """
+    ALTER TABLE observations ADD COLUMN collector_target TEXT;
+    """,
 ]

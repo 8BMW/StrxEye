@@ -14,6 +14,7 @@ from ..models import EntityRef, EntityType, RelationType
 from ..net import FetchError, fetch
 from ..targets import TargetError, normalize_domain
 from .base import Collector, CollectorContext, Findings
+from .vulnintel import EPSS_URL, KEV_URL, epss_scores, kev_catalog
 
 API = "https://internetdb.shodan.io/"
 METHOD = "Shodan InternetDB lookup (HTTPS)"
@@ -24,7 +25,7 @@ class InternetDbCollector(Collector):
     title = "Open ports and services (Shodan InternetDB)"
     description = "Ports, hostnames, software (CPE) and banner-based CVE guesses from Shodan scans."
     accepts = frozenset({EntityType.IP})
-    sources = ("internetdb.shodan.io",)
+    sources = ("internetdb.shodan.io", "cisa.gov (KEV catalogue)", "api.first.org (EPSS)")
 
     async def collect(self, target: EntityRef, ctx: CollectorContext) -> Findings:
         found = Findings(self.name)
@@ -59,7 +60,35 @@ class InternetDbCollector(Collector):
         # CVEs stay observations, not graph nodes: an old server can carry
         # hundreds of version-based guesses, which would bury the signals
         # that matter in the graph. They still show in Threats and details.
-        for cve in data.get("vulns", [])[:200]:
-            found.observe(target, "scan.possible_vulnerability", cve.upper(), **obs,
-                          confidence=0.4)
+        cves = sorted({c.upper() for c in data.get("vulns", [])})[:200]
+        for cve in cves:
+            found.observe(target, "scan.possible_vulnerability", cve, **obs, confidence=0.4)
+        if cves:
+            await self._enrich(found, target, ctx, cves)
         return found
+
+    async def _enrich(self, found: Findings, target: EntityRef, ctx: CollectorContext,
+                      cves: list[str]) -> None:
+        """Mark guessed CVEs that are known to be exploited (CISA KEV) and add
+        exploit-probability scores (EPSS). Failures here only make the
+        result partial; the scan data itself is still valid."""
+        try:
+            kev = await kev_catalog(ctx)
+            for cve in cves:
+                if cve in kev:
+                    found.observe(target, "vuln.kev", {"cve": cve, **kev[cve]},
+                                  method="Match against CISA KEV catalogue",
+                                  source_url=KEV_URL, confidence=0.4)
+        except FetchError as exc:
+            found.partial = True
+            found.notes.append(f"CISA KEV unavailable: {exc}")
+        try:
+            scores = await epss_scores(ctx, cves)
+            top = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:10]
+            if top:
+                found.observe(target, "vuln.epss_top",
+                              [{"cve": c, "epss": round(s, 4)} for c, s in top],
+                              method="FIRST EPSS API", source_url=EPSS_URL, confidence=0.4)
+        except FetchError as exc:
+            found.partial = True
+            found.notes.append(f"EPSS unavailable: {exc}")

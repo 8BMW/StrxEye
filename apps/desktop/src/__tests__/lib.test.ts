@@ -12,6 +12,9 @@ describe("routing", () => {
     expect(parseRoute("#/inv/abc/unknown-tab")).toEqual({ page: "investigation", id: "abc", tab: "collect", entity: undefined });
     expect(parseRoute("#/nonsense")).toEqual({ page: "overview" });
     expect(parseRoute("#/settings")).toEqual({ page: "settings" });
+    expect(parseRoute("#/alerts")).toEqual({ page: "alerts" });
+    expect(parseRoute("#/plugins")).toEqual({ page: "plugins" });
+    expect(parseRoute("#/inv/abc/malware").page === "investigation" && parseRoute("#/inv/abc/malware")).toMatchObject({ tab: "malware" });
   });
 });
 
@@ -24,6 +27,7 @@ describe("guessTargetType", () => {
     ["https://example.com/x", "url"],
     ["d41d8cd98f00b204e9800998ecf8427e", "hash"],
     ["org:Cloudflare", "organization"],
+    ["malware:Emotet", "malware"],
     ["not a target", null],
   ])("%s -> %s", (input, expected) => {
     expect(guessTargetType(input)).toBe(expected);

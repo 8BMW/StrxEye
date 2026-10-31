@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useApp } from "../../App";
+import { MonitorCard } from "../../components/MonitorCard";
 import { ErrorBanner, Icon, Spinner, StatusText, TypeBadge, useToast } from "../../components/ui";
 import { formatTime, guessTargetType, href, relativeTime } from "../../lib";
 import type { CollectorInfo, RunDetail } from "../../types";
@@ -91,10 +92,10 @@ export function CollectPanel({ inv, reload }: PanelProps) {
             <label htmlFor="target" className="label">Target</label>
             <div className="flex gap-2">
               <input id="target" className="input mono" value={target} onChange={(e) => setTarget(e.target.value)}
-                placeholder="example.com, 1.1.1.1, AS13335, a file hash, or org:Company" autoComplete="off" spellCheck={false} disabled={running} />
+                placeholder="example.com, 1.1.1.1, AS13335, a hash, org:Company or malware:Family" autoComplete="off" spellCheck={false} disabled={running} />
             </div>
             <div className="h-4 text-xxs text-muted">
-              {target && (type ? <>Detected: <TypeBadge type={type} /></> : "Not recognised. Companies need the org: prefix, e.g. org:Cloudflare")}
+              {target && (type ? <>Detected: <TypeBadge type={type} /></> : "Not recognised. Use org:Name for companies and malware:Name for malware families")}
             </div>
           </div>
 
@@ -161,6 +162,7 @@ export function CollectPanel({ inv, reload }: PanelProps) {
 
       <section className="min-w-0 p-5">
         {run && <RunProgress run={run} />}
+        <div className="mb-5"><MonitorCard investigationId={inv.id} suggestedTarget={inv.seeds[0]?.value ?? ""} /></div>
         <h2 className="label mb-2 mt-1">Run history</h2>
         {inv.runs.length === 0 ? (
           <p className="text-muted">No collection runs yet. Enter a target to start.</p>

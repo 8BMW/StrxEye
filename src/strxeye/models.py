@@ -38,6 +38,7 @@ class EntityType(StrEnum):
     HASH = "hash"
     INDICATOR = "indicator"
     MALWARE = "malware"
+    THREAT_ACTOR = "threat_actor"
 
 
 class RelationType(StrEnum):
@@ -59,6 +60,8 @@ class RelationType(StrEnum):
     ASSOCIATED_WITH = "associated_with"
     OBSERVED_IN = "observed_in"
     SHARES_INFRASTRUCTURE = "shares_infrastructure"
+    ATTRIBUTED_TO = "attributed_to"
+    LIKELY_SAME_OPERATOR = "likely_same_operator"
 
 
 class CollectionStatus(StrEnum):
