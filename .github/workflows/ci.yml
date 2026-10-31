@@ -36,7 +36,7 @@ jobs:
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -56,7 +56,7 @@ jobs:
           python-version: "3.12"
       - run: pip install pip-audit
       - run: pip install -e . && pip-audit --skip-editable
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: npm audit --omit=dev --audit-level=high
