@@ -31,7 +31,7 @@ command-line tool. All of them share one engine and one local database.
 <p align="center">
   <img src="docs/media/demo.gif" alt="Creating an investigation, collecting on an IP address, reviewing its threat signals, graph, timeline and report" width="900">
   <br>
-  <sub>30-second walkthrough recorded from the app: a new case, live collection on an IP from an alert, the botnet C2 hit in Threats, the graph and the report. <a href="docs/media/demo.mp4">MP4 version</a>.</sub>
+  <sub>45-second walkthrough recorded from the app (1.1.0): a new case, live collection on an IP from an alert, the botnet C2 hit in Threats, the Emotet profile from Malpedia in the Malware tab, the graph and the report. <a href="docs/media/demo.mp4">MP4 version</a>.</sub>
 </p>
 
 ## Contents
@@ -131,7 +131,7 @@ command-line tool. All of them share one engine and one local database.
 ## Screenshots
 
 All screenshots come from the running app on data collected from the live sources
-listed below, at versions 1.0.1 and 1.1.0. The demo cases are python.org's public
+listed below, at version 1.1.0. The demo cases are python.org's public
 infrastructure, two botnet C2 servers currently listed by abuse.ch with a Tor
 exit for comparison, and Cloudflare as a supplier.
 
@@ -175,7 +175,11 @@ exit for comparison, and Cloudflare as a supplier.
     <td><img src="docs/media/collectors.png" alt="Collector list with filter"></td>
   </tr>
   <tr>
-    <td><img src="docs/media/graph-light.png" alt="Graph in the light theme"></td>
+    <td><img src="docs/media/alerts.png" alt="Alerts page with watched targets"></td>
+    <td><img src="docs/media/plugins.png" alt="Plugins page"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/graph-light.png" alt="Botnet case graph in the light theme with the Emotet node selected"></td>
     <td><img src="docs/media/settings-light.png" alt="Settings in the light theme"></td>
   </tr>
 </table>
