@@ -17,9 +17,17 @@ from strxeye.storage import Store
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
-    """Never touch the real user config or database from tests."""
+    """Never touch the real user config, database or OS keychain from tests."""
+    import keyring
+    from keyring.backends import null
+
     monkeypatch.setenv("STRXEYE_HOME", str(tmp_path / "home"))
-    return tmp_path / "home"
+    for name in ("VIRUSTOTAL", "OTX"):
+        monkeypatch.delenv(f"STRXEYE_KEY_{name}", raising=False)
+    previous = keyring.get_keyring()
+    keyring.set_keyring(null.Keyring())
+    yield tmp_path / "home"
+    keyring.set_keyring(previous)
 
 
 @pytest.fixture

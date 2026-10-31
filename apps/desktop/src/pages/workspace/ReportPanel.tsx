@@ -8,6 +8,7 @@ const FORMATS = [
   { id: "html", label: "HTML", mime: "text/html", help: "Readable report with summary, scope, methodology, findings, relationships, limitations and evidence index. Print it to PDF from a browser." },
   { id: "json", label: "JSON", mime: "application/json", help: "The same content as structured data, for scripts and other tools." },
   { id: "csv", label: "CSV", mime: "text/csv", help: "One row per observation with source, time, confidence and evidence ID." },
+  { id: "stix", label: "STIX 2.1", mime: "application/stix+json", help: "Bundle for threat-intelligence platforms (OpenCTI, MISP, TAXII servers). Observed relationships only; inferred links are left out." },
 ];
 
 export function ReportPanel({ inv }: PanelProps) {
@@ -21,7 +22,7 @@ export function ReportPanel({ inv }: PanelProps) {
     setError(null);
     try {
       const text = await api.reportText(inv.id, fmt.id);
-      downloadText(`strxeye-${inv.id}.${fmt.id}`, text, fmt.mime);
+      downloadText(`strxeye-${inv.id}.${fmt.id === "stix" ? "stix.json" : fmt.id}`, text, fmt.mime);
       toast(`${fmt.label} report downloaded`);
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }

@@ -10,11 +10,13 @@ import { EvidencePanel } from "./workspace/EvidencePanel";
 import { GraphPanel } from "./workspace/GraphPanel";
 import { HistoryPanel } from "./workspace/HistoryPanel";
 import { ReportPanel } from "./workspace/ReportPanel";
+import { TimelinePanel } from "./workspace/TimelinePanel";
 
 const TAB_LABELS: Record<WorkspaceTab, string> = {
   collect: "Collect",
   entities: "Entities",
   graph: "Graph",
+  timeline: "Timeline",
   evidence: "Evidence",
   history: "History",
   report: "Report",
@@ -80,6 +82,7 @@ export function Workspace({ route }: { route: Extract<Route, { page: "investigat
         {route.tab === "collect" && <CollectPanel {...panelProps} />}
         {route.tab === "entities" && <EntitiesPanel {...panelProps} />}
         {route.tab === "graph" && <GraphPanel {...panelProps} />}
+        {route.tab === "timeline" && <TimelinePanel {...panelProps} />}
         {route.tab === "evidence" && <EvidencePanel {...panelProps} />}
         {route.tab === "history" && <HistoryPanel {...panelProps} />}
         {route.tab === "report" && <ReportPanel {...panelProps} />}

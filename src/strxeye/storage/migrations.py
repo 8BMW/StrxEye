@@ -109,4 +109,32 @@ MIGRATIONS: list[str] = [
         detail TEXT NOT NULL DEFAULT '{}'
     );
     """,
+    # 2: full-text search over entity values, observation values and raw
+    # evidence. The trigram tokenizer gives substring matching, which is
+    # what analysts expect for IPs, hostnames and hashes.
+    """
+    CREATE VIRTUAL TABLE search_index USING fts5(
+        text, investigation_id UNINDEXED, kind UNINDEXED, ref UNINDEXED,
+        tokenize = 'trigram'
+    );
+    INSERT INTO search_index (text, investigation_id, kind, ref)
+        SELECT value, investigation_id, 'entity', id FROM entities;
+    INSERT INTO search_index (text, investigation_id, kind, ref)
+        SELECT value, investigation_id, 'observation', id FROM observations;
+    INSERT INTO search_index (text, investigation_id, kind, ref)
+        SELECT content, investigation_id, 'evidence', id FROM evidence;
+
+    CREATE TRIGGER entities_search AFTER INSERT ON entities BEGIN
+        INSERT INTO search_index (text, investigation_id, kind, ref)
+        VALUES (new.value, new.investigation_id, 'entity', new.id);
+    END;
+    CREATE TRIGGER observations_search AFTER INSERT ON observations BEGIN
+        INSERT INTO search_index (text, investigation_id, kind, ref)
+        VALUES (new.value, new.investigation_id, 'observation', new.id);
+    END;
+    CREATE TRIGGER evidence_search AFTER INSERT ON evidence BEGIN
+        INSERT INTO search_index (text, investigation_id, kind, ref)
+        VALUES (new.content, new.investigation_id, 'evidence', new.id);
+    END;
+    """,
 ]

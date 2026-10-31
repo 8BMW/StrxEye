@@ -37,6 +37,7 @@ class EntityType(StrEnum):
     TECHNOLOGY = "technology"
     HASH = "hash"
     INDICATOR = "indicator"
+    MALWARE = "malware"
 
 
 class RelationType(StrEnum):

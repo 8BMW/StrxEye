@@ -28,6 +28,8 @@ main protections, and where they live:
 | Other local processes or web pages calling the API | Loopback-only bind, per-launch random token (constant-time comparison), Host header allow-list against DNS rebinding, `SameSite=Strict` HttpOnly cookie. | `server.py` |
 | Path traversal when serving the UI | Files are served only if the resolved path is inside the UI folder. | `server.py` |
 | Untrusted plugins | Installed plugins are not imported until trusted by name and exact version; upgrades must be trusted again. | `plugins.py` |
+| API keys leaking into files, logs or shell history | Keys live in the OS keychain (or an environment variable), are read through a hidden prompt, are write-only in the UI and API, and are never written to config, database, evidence or audit log. | `secrets.py` |
+| Tampered update downloads | The updater only downloads from `github.com/<repo>/releases/download/` and runs the installer only if its SHA-256 matches `SHA256SUMS.txt` from the same release. | `updater.py` |
 | Collecting more personal data than needed | RDAP personal contact fields and cookie values are never stored. | `collectors/rdap.py`, `collectors/website.py` |
 
 Known gaps:
@@ -37,3 +39,6 @@ Known gaps:
 - Plugins, once trusted, run with the user's full permissions. There is no
   sandbox.
 - The local database is not encrypted at rest; use full-disk encryption.
+- Releases are not code-signed. The update checksum protects against
+  corrupted or altered downloads, not against a compromised GitHub account;
+  signed releases are needed for that.

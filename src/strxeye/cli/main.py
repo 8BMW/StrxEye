@@ -44,10 +44,13 @@ investigate_app = typer.Typer(no_args_is_help=True, help="Create, run and inspec
 graph_app = typer.Typer(no_args_is_help=True, help="Export investigation graphs.")
 plugins_app = typer.Typer(no_args_is_help=True, help="Discover and trust collector plugins.")
 config_app = typer.Typer(no_args_is_help=True, help="Show and change settings.")
+keys_app = typer.Typer(no_args_is_help=True,
+                       help="Manage API keys (stored in the OS keychain, never in files).")
 app.add_typer(investigate_app, name="investigate")
 app.add_typer(graph_app, name="graph")
 app.add_typer(plugins_app, name="plugins")
 app.add_typer(config_app, name="config")
+app.add_typer(keys_app, name="keys")
 
 out = Console(highlight=False, soft_wrap=False)
 err = Console(stderr=True, highlight=False)
@@ -207,6 +210,56 @@ def lookup(target: str, collectors: CollectorsOpt = None, direct: DirectOpt = Fa
     _collect(target, None, collectors, direct, expand, save, json_, verbose)
 
 
+@app.command()
+def org(name: str, save: SaveOpt = None, json_: JsonOpt = False, verbose: VerboseOpt = False):
+    """Look up companies by legal name in the GLEIF registry."""
+    _collect(name, EntityType.ORGANIZATION, None, False, False, save, json_, verbose)
+
+
+@app.command("hash")
+def hash_(value: str, save: SaveOpt = None, json_: JsonOpt = False, verbose: VerboseOpt = False):
+    """Reputation of an MD5, SHA-1, SHA-256 or SHA-512 file hash."""
+    _collect(value, EntityType.HASH, None, False, False, save, json_, verbose)
+
+
+@app.command()
+def search(
+    text: str,
+    case_id: Annotated[str | None, typer.Option("--in", help="Limit to one investigation.")] = None,
+    json_: JsonOpt = False,
+) -> None:
+    """Search entities, observations and raw evidence across investigations."""
+    store = open_store()
+    inv_id = _resolve(store, case_id) if case_id else None
+    try:
+        hits = store.search(text, inv_id)
+    except ValueError as exc:
+        raise fail(str(exc)) from None
+    if json_:
+        out.print_json(json.dumps(hits, default=str))
+        return
+    if not any(hits.values()):
+        out.print(f"No matches for '{text}'.")
+        return
+    for section, rows in hits.items():
+        if not rows:
+            continue
+        table = Table(title=f"{section} ({len(rows)})", title_justify="left",
+                      show_edge=False, pad_edge=False)
+        for col in ("investigation", "match", "context"):
+            table.add_column(col, overflow="fold")
+        for r in rows:
+            if section == "entities":
+                where = f"{r['type']}:{r['value']}"
+            elif section == "observations":
+                where = f"{r['entity_value']} {r['kind']}"
+            else:
+                where = f"{r['collector']} {r['locator']}"
+            table.add_row(f"{r['investigation']} ({r['investigation_id']})", where,
+                          " ".join(r["snippet"].split()))
+        out.print(table)
+
+
 @app.command("collectors")
 def list_collectors(json_: JsonOpt = False) -> None:
     """List available collectors and the services each one contacts."""
@@ -221,6 +274,49 @@ def list_collectors(json_: JsonOpt = False) -> None:
         table.add_row(c["name"], ", ".join(c["accepts"]), ", ".join(c["sources"]) or "target",
                       "yes" if c["direct"] else "no", c["description"])
     out.print(table)
+
+
+# API keys -----------------------------------------------------------------------
+
+
+@keys_app.command("list")
+def keys_list() -> None:
+    """Show which keys are configured (never prints the keys)."""
+    from ..secrets import KNOWN_KEYS, key_status
+
+    status = key_status()
+    for name, description in KNOWN_KEYS.items():
+        out.print(f"{name:12} {status[name] or 'not set':12} {description}")
+
+
+@keys_app.command("set")
+def keys_set(name: str) -> None:
+    """Store a key in the OS keychain. Read from a hidden prompt so it does
+    not end up in shell history."""
+    from ..secrets import SecretStoreError, set_key
+
+    value = typer.prompt(f"{name} key", hide_input=True)
+    try:
+        set_key(name, value)
+    except (KeyError, ValueError, SecretStoreError) as exc:
+        raise fail(str(exc).strip("'\"")) from None
+    Store(database_path()).audit("key.set", None, {"name": name})
+    out.print(f"Stored {name} key in the system keychain.")
+
+
+@keys_app.command("delete")
+def keys_delete(name: str) -> None:
+    """Remove a key from the OS keychain."""
+    from ..secrets import delete_key
+
+    try:
+        removed = delete_key(name)
+    except KeyError as exc:
+        raise fail(str(exc).strip("'\"")) from None
+    if not removed:
+        raise fail(f"no {name} key was stored", EXIT_NOT_FOUND)
+    Store(database_path()).audit("key.delete", None, {"name": name})
+    out.print(f"Deleted {name} key.")
 
 
 # Investigations ---------------------------------------------------------------
@@ -355,6 +451,29 @@ def investigate_diff(case_id: str, older_run: str, newer_run: str, json_: JsonOp
               f"{diff['unchanged']} unchanged")
 
 
+@investigate_app.command("timeline")
+def investigate_timeline(case_id: str, json_: JsonOpt = False) -> None:
+    """Dated events: registrations, certificates, passive DNS, threat reports."""
+    from ..analytics import timeline
+
+    store = open_store()
+    inv_id = _resolve(store, case_id)
+    events = timeline(store.all_observations(inv_id),
+                      store.entities(inv_id, "certificate", limit=100_000))
+    if json_:
+        out.print_json(json.dumps(events, default=str))
+        return
+    if not events:
+        out.print("No dated events in this investigation yet.")
+        return
+    table = Table(show_edge=False, pad_edge=False)
+    for col in ("when (UTC)", "event", "entity", "detail", "source"):
+        table.add_column(col, overflow="fold")
+    for e in events:
+        table.add_row(e["at"][:19], e["event"], e["entity"], e["detail"] or "", e["source"])
+    out.print(table)
+
+
 @investigate_app.command("delete")
 def investigate_delete(case_id: str, yes: Annotated[bool, typer.Option(
         "--yes", "-y", help="Do not ask for confirmation.")] = False) -> None:
@@ -410,7 +529,8 @@ def graph_export(case_id: str, output: OutputOpt = None, no_inferred: Annotated[
 
 @app.command()
 def report(case_id: str, format: Annotated[str, typer.Option(
-        "--format", "-f", help="html, json or csv")] = "html", output: OutputOpt = None) -> None:
+        "--format", "-f", help="html, json, csv or stix")] = "html",
+        output: OutputOpt = None) -> None:
     """Generate a report for an investigation."""
     from ..reporting import FORMATS, render
 
@@ -421,6 +541,61 @@ def report(case_id: str, format: Annotated[str, typer.Option(
         raise fail(f"unknown format '{format}'; choose one of {', '.join(FORMATS)}")
     store = open_store()
     _write(render(store, _resolve(store, case_id), format, load_settings()), output)
+
+
+@graph_app.command("path")
+def graph_path(case_id: str, source: str, target: str, inferred: Annotated[
+        bool, typer.Option("--inferred", help="Allow inferred links in the path.")] = False):
+    """Shortest connection between two entities, given by value."""
+    from ..analytics import shortest_path
+    from ..graph import build_graph
+
+    store = open_store()
+    data = build_graph(store, _resolve(store, case_id), inferred)
+    by_value: dict[str, dict] = {}
+    for n in data["nodes"]:
+        by_value.setdefault(n["value"].lower(), n)
+    nodes = {n["id"]: n for n in data["nodes"]}
+    ends = []
+    for value in (source, target):
+        node = by_value.get(value.strip().lower())
+        if node is None:
+            raise fail(f"'{value}' is not an entity in this investigation", EXIT_NOT_FOUND)
+        ends.append(node["id"])
+    path = shortest_path(data, ends[0], ends[1], inferred)
+    if path is None:
+        hint = "" if inferred else " by observed relationships (try --inferred)"
+        raise fail("these entities are not connected" + hint, EXIT_NOT_FOUND)
+    edges = {e["id"]: e for e in data["edges"]}
+    for i, node_id in enumerate(path["nodes"]):
+        node = nodes[node_id]
+        out.print(f"[bold]{node['type']}[/bold] {node['value']}")
+        if i < len(path["edges"]):
+            edge = edges[path["edges"][i]]
+            arrow = "->" if edge["source"] == node_id else "<-"
+            tag = " (inferred)" if edge["inferred"] else ""
+            out.print(f"   {arrow} {edge['type'].replace('_', ' ')}{tag}")
+
+
+@graph_app.command("analyze")
+def graph_analyze(case_id: str, json_: JsonOpt = False) -> None:
+    """Clusters of related entities and the most connected entities."""
+    from ..analytics import summarize
+    from ..graph import build_graph
+
+    store = open_store()
+    result = summarize(build_graph(store, _resolve(store, case_id), False))
+    result.pop("membership")
+    if json_:
+        out.print_json(json.dumps(result))
+        return
+    out.print(f"{len(result['communities'])} clusters, {result['isolated']} unconnected entities")
+    for c in result["communities"][:15]:
+        types = ", ".join(f"{n} {t}" for t, n in c["types"].items())
+        out.print(f"  cluster around {c['hub']}: {c['size']} entities ({types})")
+    out.print("Most connected:")
+    for n in result["most_connected"]:
+        out.print(f"  {n['degree']:4}  {n['type']}:{n['value']}")
 
 
 # Plugins ----------------------------------------------------------------------
@@ -516,6 +691,27 @@ def config_set(key: str, value: str) -> None:
 
 
 # Local API for the desktop app ----------------------------------------------------
+
+
+@app.command()
+def update(json_: JsonOpt = False) -> None:
+    """Check GitHub for a newer release."""
+    from ..net import FetchError
+    from ..updater import check
+
+    try:
+        info = asyncio.run(check(load_settings()))
+    except FetchError as exc:
+        raise fail(f"update check failed: {exc}", EXIT_FAILED) from None
+    if json_:
+        out.print_json(json.dumps(info.as_dict()))
+        return
+    if not info.newer:
+        out.print(f"STRX EYE {info.current} is up to date.")
+        return
+    out.print(f"STRX EYE {info.latest} is available (you have {info.current}).")
+    out.print(f"Release notes: {info.release_url}")
+    out.print("Windows app: Settings > Updates installs it. pip: pip install -U strxeye")
 
 
 @app.command()

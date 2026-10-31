@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "strxeye"
-version = "0.1.0"
+version = "1.0.0"
 description = "Local-first OSINT investigation framework: passive domain, IP and certificate collection with an evidence graph."
 readme = "README.md"
 license = "MIT"
@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 authors = [{ name = "STRX EYE contributors" }]
 keywords = ["osint", "threat-intelligence", "dns", "rdap", "certificate-transparency"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Environment :: Console",
   "Intended Audience :: Information Technology",
   "Programming Language :: Python :: 3.12",
@@ -28,10 +28,12 @@ dependencies = [
   "rich>=13.7",
   "jinja2>=3.1",
   "platformdirs>=4.2",
+  "keyring>=25",
 ]
 
 [project.optional-dependencies]
 server = ["fastapi>=0.111", "uvicorn>=0.30"]
+desktop = ["fastapi>=0.111", "uvicorn>=0.30", "pywebview>=5.3"]
 dev = [
   "fastapi>=0.111",
   "uvicorn>=0.30",
@@ -39,15 +41,22 @@ dev = [
   "pytest-asyncio>=0.23",
   "respx>=0.21",
   "ruff>=0.5",
+  "stix2>=3.0",
 ]
 
 [project.scripts]
 strxeye = "strxeye.cli.main:app"
 
+[project.gui-scripts]
+strxeye-desktop = "strxeye.desktop:main"
+
+[tool.hatch.build]
+# The built web UI is generated (and git-ignored) but must ship in both the
+# sdist and the wheel; `python -m build` makes the wheel from the sdist.
+artifacts = ["src/strxeye/web/**"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/strxeye"]
-# The built web UI is generated (and git-ignored) but must ship in wheels.
-artifacts = ["src/strxeye/web/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

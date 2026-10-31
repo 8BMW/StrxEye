@@ -10,9 +10,10 @@ export type Route =
   | { page: "investigation"; id: string; tab: WorkspaceTab; entity?: number }
   | { page: "collectors" }
   | { page: "settings" }
-  | { page: "audit" };
+  | { page: "audit" }
+  | { page: "search"; q?: string };
 
-export const WORKSPACE_TABS = ["collect", "entities", "graph", "evidence", "history", "report"] as const;
+export const WORKSPACE_TABS = ["collect", "entities", "graph", "timeline", "evidence", "history", "report"] as const;
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 
 export function parseRoute(hash: string): Route {
@@ -25,6 +26,7 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === "collectors") return { page: "collectors" };
   if (parts[0] === "settings") return { page: "settings" };
   if (parts[0] === "audit") return { page: "audit" };
+  if (parts[0] === "search") return { page: "search", q: parts[1] };
   return { page: "overview" };
 }
 
@@ -34,6 +36,8 @@ export function href(route: Route): string {
       return `#/inv/${encodeURIComponent(route.id)}/${route.tab}${route.entity ? `/${route.entity}` : ""}`;
     case "overview":
       return "#/";
+    case "search":
+      return route.q ? `#/search/${encodeURIComponent(route.q)}` : "#/search";
     default:
       return `#/${route.page}`;
   }
@@ -132,6 +136,7 @@ export const TYPE_COLORS: Record<EntityType, string> = {
   technology: "#ec4899",
   hash: "#94a3b8",
   indicator: "#ef4444",
+  malware: "#dc2626",
 };
 
 export const STATUS_CLASS: Record<CollectionStatus | string, string> = {
@@ -157,6 +162,7 @@ export function humanize(kind: string): string {
 export function guessTargetType(raw: string): EntityType | "asn" | null {
   const t = raw.trim();
   if (!t) return null;
+  if (/^org:\s*\S/i.test(t)) return "organization";
   if (/^https?:\/\//i.test(t)) return "url";
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(t) || (t.includes(":") && /^[0-9a-f:.[\]]+$/i.test(t))) return "ip";
   if (/^as\d+$/i.test(t)) return "asn";

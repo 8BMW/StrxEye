@@ -28,6 +28,12 @@ produced it.
 | `src/strxeye/plugins.py` | Entry-point discovery and trust |
 | `src/strxeye/cli/` | Typer commands and Rich output |
 | `src/strxeye/server.py` | FastAPI app for the UI |
+| `src/strxeye/desktop.py` | Desktop launcher: engine in-process, UI in a native window |
+| `src/strxeye/analytics.py` | Shortest path, clusters, timeline |
+| `src/strxeye/reporting/stix.py` | STIX 2.1 export |
+| `src/strxeye/secrets.py` | API keys in the OS keychain |
+| `src/strxeye/updater.py` | Release check and verified self-update |
+| `packaging/` | PyInstaller spec, Inno Setup installer, icon |
 | `apps/desktop/` | React + TypeScript + Tailwind + Cytoscape UI |
 
 A single Python package (rather than one package per area) is deliberate: it

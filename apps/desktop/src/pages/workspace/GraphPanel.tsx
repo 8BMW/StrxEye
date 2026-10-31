@@ -7,7 +7,11 @@ import { EvidenceViewer } from "../../components/EvidenceViewer";
 import { Confidence, EmptyState, ErrorBanner, Icon, Spinner, TypeBadge } from "../../components/ui";
 import { buildView, defaultHiddenTypes, searchNodes } from "../../graphModel";
 import { downloadBlob, downloadText, formatTime, href, humanize, navigate, TYPE_COLORS, useLoad } from "../../lib";
-import { ENTITY_TYPES, type EntityType, type Graph, type GraphEdge } from "../../types";
+import { ENTITY_TYPES, type Analytics, type EntityType, type Graph, type GraphEdge, type PathResult } from "../../types";
+
+// Distinct colours for clusters, largest cluster first.
+const CLUSTER_COLORS = ["#22c5e6", "#f59e0b", "#a855f7", "#10b981", "#ef4444", "#3b82f6",
+  "#ec4899", "#84cc16", "#f97316", "#14b8a6"];
 import type { PanelProps } from "../Workspace";
 
 cytoscape.use(cytoscapeSvg);
@@ -53,6 +57,31 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<Selection>(null);
+  const [pathEnds, setPathEnds] = useState<{ from?: number; to?: number }>({});
+  const [path, setPath] = useState<PathResult | null>(null);
+  const [pathError, setPathError] = useState<string | null>(null);
+  const [clusters, setClusters] = useState<Analytics | null>(null);
+  const [clusterMode, setClusterMode] = useState(false);
+
+  useEffect(() => {
+    if (clusterMode && !clusters) api.analytics(investigationId).then(setClusters).catch(() => setClusterMode(false));
+  }, [clusterMode, clusters, investigationId]);
+
+  const clusterColor = useMemo(() => {
+    const colors = new Map<number, string>();
+    clusters?.communities.forEach((c, i) => colors.set(c.id, CLUSTER_COLORS[i % CLUSTER_COLORS.length]));
+    return (nodeId: number) => {
+      const cid = clusters?.membership[String(nodeId)];
+      return cid !== undefined ? colors.get(cid) ?? "#64748b" : "#64748b";
+    };
+  }, [clusters]);
+
+  useEffect(() => {
+    if (pathEnds.from === undefined || pathEnds.to === undefined) return;
+    setPathError(null);
+    api.path(investigationId, pathEnds.from, pathEnds.to, showInferred)
+      .then(setPath).catch((e) => { setPath(null); setPathError(e.message); });
+  }, [pathEnds, investigationId, showInferred]);
 
   const view = useMemo(() => buildView(graph, { hiddenTypes, showInferred, collapsed }),
     [graph, hiddenTypes, showInferred, collapsed]);
@@ -71,7 +100,7 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
     const elements: ElementDefinition[] = [
       ...view.nodes.map((n) => ({
         data: { id: `n${n.id}`, nid: n.id, label: n.folded ? `${n.label}  (+${n.folded})` : n.label,
-          color: TYPE_COLORS[n.type] ?? "#94a3b8", seed: n.seed ? 1 : 0, size: n.seed ? 34 : 14 + Math.min(n.degree, 12) },
+          color: clusterMode && clusters ? clusterColor(n.id) : TYPE_COLORS[n.type] ?? "#94a3b8", seed: n.seed ? 1 : 0, size: n.seed ? 34 : 14 + Math.min(n.degree, 12) },
       })),
       ...view.edges.map((e) => ({
         data: { id: e.id, source: `n${e.source}`, target: `n${e.target}`, label: humanize(e.type),
@@ -100,6 +129,8 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
         { selector: "node[seed = 1]", style: { "border-width": 3, "border-color": fg, "font-size": 11, "font-weight": "bold" } },
         { selector: "node.match", style: { "border-width": 3, "border-color": accent, "z-index": 10 } },
         { selector: "node.faded, edge.faded", style: { opacity: 0.15 } },
+        { selector: "node.onpath", style: { "border-width": 4, "border-color": "#facc15", opacity: 1 } },
+        { selector: "edge.onpath", style: { width: 4, "line-color": "#facc15", "target-arrow-color": "#facc15", opacity: 1, label: "data(label)", color: fg, "font-size": 9 } },
         { selector: "node:selected", style: { "border-width": 4, "border-color": accent } },
         { selector: "edge", style: {
           width: "data(width)", "line-color": line, "curve-style": "bezier",
@@ -126,7 +157,23 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
     cy.on("mouseout", "edge", (evt) => evt.target.removeClass("hover"));
     cyRef.current = cy;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, themeVersion]);
+  }, [view, themeVersion, clusterMode, clusters]);
+
+  // Path highlighting without rebuilding the graph.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.batch(() => {
+      cy.elements().removeClass("onpath");
+      if (!path) return;
+      const nodes = new Set(path.nodes.map((n) => `n${n}`));
+      const edges = new Set(path.edges);
+      cy.nodes().forEach((n) => { if (nodes.has(n.id())) n.addClass("onpath"); });
+      cy.edges().forEach((e) => { if (edges.has(e.id())) e.addClass("onpath"); });
+    });
+    const eles = cy.elements(".onpath");
+    if (eles.length) cy.animate({ fit: { eles, padding: 80 } }, { duration: 200 });
+  }, [path, view, clusterMode, clusters]);
 
   useEffect(() => () => { cyRef.current?.destroy(); cyRef.current = null; }, []);
 
@@ -150,7 +197,12 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
     const cy = cyRef.current;
     if (!cy || !matches.size) return;
     const els = cy.nodes().filter((n) => matches.has(n.data("nid")));
-    cy.animate({ fit: { eles: els, padding: 80 } }, { duration: 200 });
+    if (els.length === 1) {
+      // Fitting a single node would zoom to its full size; centre instead.
+      cy.animate({ center: { eles: els }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 200 });
+    } else {
+      cy.animate({ fit: { eles: els, padding: 80 } }, { duration: 200 });
+    }
     if (els.length === 1) setSelection({ kind: "node", id: els[0].data("nid") });
   };
 
@@ -191,6 +243,10 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
             <input type="checkbox" className="accent-[rgb(var(--accent))]" checked={showInferred} onChange={(e) => setShowInferred(e.target.checked)} />
             <span className="text-inferred">inferred links</span>
           </label>
+          <label className="flex items-center gap-1.5 text-xs">
+            <input type="checkbox" className="accent-[rgb(var(--accent))]" checked={clusterMode} onChange={(e) => setClusterMode(e.target.checked)} />
+            colour by cluster
+          </label>
           <div className="ml-auto flex gap-1">
             <button className="btn btn-sm" title="Fit to screen" onClick={() => cyRef.current?.fit(undefined, 40)}><Icon name="fit" size={14} /></button>
             <button className="btn btn-sm" title="Re-run layout" onClick={() => cyRef.current?.layout(layoutFor(view.nodes.length)).run()}><Icon name="refresh" size={14} /></button>
@@ -210,9 +266,49 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
         </div>
       </div>
       <aside className="min-w-0 overflow-auto border-l border-line bg-panel" aria-label="Selection details">
+        {(path || pathError || pathEnds.from !== undefined) && (
+          <div className="border-b border-line bg-raised/40 px-4 py-2 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="label">Shortest path</span>
+              <button className="text-muted hover:text-fg" onClick={() => { setPath(null); setPathEnds({}); setPathError(null); }}>clear</button>
+            </div>
+            {pathError && <p className="text-warn">{pathError}{!showInferred && " (inferred links are excluded)"}</p>}
+            {!path && !pathError && <p className="text-muted">From {nodeById.get(pathEnds.from!)?.value}. Select another node and choose Path to.</p>}
+            {path && (
+              <ol className="mt-1 space-y-0.5">
+                {path.nodes.map((id, i) => {
+                  const edge = graph.edges.find((e) => e.id === path.edges[i]);
+                  return (
+                    <li key={id}>
+                      <span className="mono">{nodeById.get(id)?.value}</span>
+                      {edge && <div className="pl-3 text-muted">↓ {humanize(edge.type)}{edge.inferred ? " (inferred)" : ""}</div>}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </div>
+        )}
+        {clusterMode && clusters && (
+          <div className="border-b border-line px-4 py-2 text-xs">
+            <span className="label">Clusters</span>
+            <ul className="mt-1 space-y-0.5">
+              {clusters.communities.slice(0, 10).map((c, i) => (
+                <li key={c.id} className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: CLUSTER_COLORS[i % CLUSTER_COLORS.length] }} />
+                  <span className="mono truncate">{c.hub}</span>
+                  <span className="ml-auto text-muted">{c.size}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {selection?.kind === "node" && (
           <>
             <div className="flex flex-wrap gap-2 border-b border-line px-4 py-2">
+              <button className="btn btn-sm" title="Start a shortest-path search here" onClick={() => { setPath(null); setPathEnds({ from: selection.id }); }}>Path from</button>
+              <button className="btn btn-sm" disabled={pathEnds.from === undefined || pathEnds.from === selection.id}
+                title="Find the shortest connection to this node" onClick={() => setPathEnds((p) => ({ ...p, to: selection.id }))}>Path to</button>
               <button className="btn btn-sm" onClick={() => toggleCollapse(selection.id)}>
                 {collapsed.has(selection.id) ? "Unfold leaves" : "Fold leaves"}
               </button>

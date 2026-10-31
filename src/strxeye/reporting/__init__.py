@@ -26,7 +26,7 @@ from ..graph import build_graph
 from ..models import utcnow
 from ..storage import Store
 
-FORMATS = ("html", "json", "csv")
+FORMATS = ("html", "json", "csv", "stix")
 
 
 def interpretations(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -152,6 +152,12 @@ def report_data(store: Store, inv_id: str, settings: Settings) -> dict[str, Any]
 def render(store: Store, inv_id: str, fmt: str, settings: Settings) -> str:
     if fmt not in FORMATS:
         raise ValueError(f"unsupported report format '{fmt}'; choose one of {', '.join(FORMATS)}")
+    if fmt == "stix":
+        from .stix import export_stix
+
+        inv = store.get_investigation(inv_id)
+        store.audit("report.export", inv.id, {"format": fmt})
+        return json.dumps(export_stix(store, inv.id), indent=2)
     data = report_data(store, inv_id, settings)
     store.audit("report.export", data["investigation"]["id"], {"format": fmt})
     if fmt == "json":

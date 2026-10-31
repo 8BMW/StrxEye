@@ -13,7 +13,9 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from importlib.resources import files
@@ -25,7 +27,8 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from . import __version__
+from . import __version__, analytics, updater
+from . import secrets as keystore
 from .collectors import registry
 from .config import database_path, load_settings, save_settings, set_value
 from .engine import Engine, EngineError, RunEvent, RunOptions
@@ -38,6 +41,7 @@ from .targets import TargetError, parse_target
 COOKIE = "strxeye_token"
 log = logging.getLogger(__name__)
 EDITABLE_SETTINGS = {
+    "updates.check_on_start",
     "collection.allow_direct", "collection.collector_timeout", "collection.max_subdomains",
     "collection.max_certificates", "collection.max_expansions", "network.timeout",
     "network.retries", "dns.nameservers",
@@ -66,6 +70,10 @@ class SettingChange(BaseModel):
     value: str = Field(max_length=2000)
 
 
+class KeyValue(BaseModel):
+    value: str = Field(min_length=1, max_length=500)
+
+
 @dataclass
 class ActiveRun:
     task: asyncio.Task
@@ -74,8 +82,9 @@ class ActiveRun:
 
 
 def create_app(store: Store, token: str, engine_factory=None,
-               static_dir: Path | None = None) -> FastAPI:
+               static_dir: Path | None = None, exit_after_update=None) -> FastAPI:
     active: dict[str, ActiveRun] = {}
+    update_cache: dict[str, object] = {}
 
     def make_engine() -> Engine:
         if engine_factory:
@@ -148,6 +157,69 @@ def create_app(store: Store, token: str, engine_factory=None,
         save_settings(settings)
         store.audit("settings.change", None, {"key": change.key, "value": change.value})
         return settings.model_dump()
+
+    @app.get("/api/keys")
+    def keys():
+        status = keystore.key_status()
+        return [{"name": n, "description": d, "source": status[n]}
+                for n, d in keystore.KNOWN_KEYS.items()]
+
+    @app.put("/api/keys/{name}", status_code=204)
+    def set_key(name: str, body: KeyValue):
+        try:
+            keystore.set_key(name, body.value)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc).strip("'\"")) from None
+        except keystore.SecretStoreError as exc:
+            raise HTTPException(500, str(exc)) from None
+        store.audit("key.set", None, {"name": name})
+        return Response(status_code=204)
+
+    @app.delete("/api/keys/{name}", status_code=204)
+    def delete_key(name: str):
+        try:
+            keystore.delete_key(name)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc).strip("'\"")) from None
+        store.audit("key.delete", None, {"name": name})
+        return Response(status_code=204)
+
+    @app.get("/api/update")
+    async def update_check(force: bool = False):
+        cached = update_cache.get("info")
+        if cached and not force and time.time() - update_cache["at"] < 3600:  # type: ignore[operator]
+            return cached
+        try:
+            info = (await updater.check(load_settings())).as_dict()
+        except updater.FetchError as exc:
+            raise HTTPException(502, str(exc)) from None
+        update_cache.update(info=info, at=time.time())
+        return info
+
+    @app.post("/api/update/install")
+    async def update_install():
+        if not updater.can_self_install():
+            raise HTTPException(400, "automatic installation is only available in the Windows "
+                                     "app; pip users run: pip install -U strxeye")
+        settings = load_settings()
+        try:
+            info = await updater.check(settings)
+            if not info.newer:
+                raise HTTPException(400, f"already up to date ({info.current})")
+            path = await updater.download_installer(info, settings)
+        except updater.FetchError as exc:
+            raise HTTPException(502, str(exc)) from None
+        store.audit("update.install", None, {"version": info.latest})
+        updater.launch_installer(path)
+        if exit_after_update:
+            asyncio.get_running_loop().call_later(1.5, exit_after_update)
+        return {"installing": info.latest}
+
+    @app.get("/api/search")
+    def search(q: str = Query(min_length=1, max_length=200), investigation: str | None = None,
+               limit: int = Query(50, ge=1, le=500)):
+        inv_id = store.resolve_investigation_id(investigation) if investigation else None
+        return store.search(q, inv_id, limit)
 
     @app.get("/api/audit")
     def audit(limit: int = Query(200, ge=1, le=2000)):
@@ -254,6 +326,27 @@ def create_app(store: Store, token: str, engine_factory=None,
     def graph(inv_id: str, inferred: bool = True):
         return build_graph(store, store.resolve_investigation_id(inv_id), inferred)
 
+    @app.get("/api/investigations/{inv_id}/analytics")
+    def graph_analytics(inv_id: str):
+        data = build_graph(store, store.resolve_investigation_id(inv_id), False)
+        result = analytics.summarize(data)
+        result["membership"] = {str(k): v for k, v in result["membership"].items()}
+        return result
+
+    @app.get("/api/investigations/{inv_id}/path")
+    def graph_path(inv_id: str, source: int, target: int, inferred: bool = False):
+        data = build_graph(store, store.resolve_investigation_id(inv_id), inferred)
+        path = analytics.shortest_path(data, source, target, inferred)
+        if path is None:
+            raise HTTPException(404, "these entities are not connected")
+        return path
+
+    @app.get("/api/investigations/{inv_id}/timeline")
+    def timeline(inv_id: str):
+        inv = store.resolve_investigation_id(inv_id)
+        return analytics.timeline(store.all_observations(inv),
+                                  store.entities(inv, "certificate", limit=100_000))
+
     @app.get("/api/investigations/{inv_id}/evidence")
     def evidence_list(inv_id: str):
         return store.list_evidence(store.resolve_investigation_id(inv_id))
@@ -272,9 +365,11 @@ def create_app(store: Store, token: str, engine_factory=None,
             raise HTTPException(400, f"format must be one of {', '.join(FORMATS)}")
         inv = store.get_investigation(inv_id)
         body = render(store, inv.id, format, load_settings())
-        media = {"html": "text/html", "json": "application/json", "csv": "text/csv"}[format]
+        media = {"html": "text/html", "json": "application/json", "csv": "text/csv",
+                 "stix": "application/stix+json"}[format]
+        ext = "stix.json" if format == "stix" else format
         return Response(body, media_type=f"{media}; charset=utf-8", headers={
-            "Content-Disposition": f'attachment; filename="strxeye-{inv.id}.{format}"'})
+            "Content-Disposition": f'attachment; filename="strxeye-{inv.id}.{ext}"'})
 
     # Bundled web UI (when built) ---------------------------------------------
 
@@ -304,7 +399,7 @@ def run_server(port: int = 8765, token: str | None = None) -> None:
     token = token or secrets.token_urlsafe(24)
     store = Store(database_path())
     ui = bundled_ui_dir()
-    app = create_app(store, token, static_dir=ui)
+    app = create_app(store, token, static_dir=ui, exit_after_update=lambda: os._exit(0))
     print(f"STRX EYE {__version__} API on http://127.0.0.1:{port}")
     if ui:
         print(f"Open the app: http://127.0.0.1:{port}/auth?token={token}")
