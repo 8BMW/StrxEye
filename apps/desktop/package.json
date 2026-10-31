@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "cytoscape": "3.30.2",
+    "cytoscape": "3.34.4",
     "cytoscape-svg": "0.4.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
@@ -19,7 +19,7 @@
   "devDependencies": {
     "@testing-library/dom": "10.4.0",
     "@testing-library/react": "16.1.0",
-    "@types/cytoscape": "3.21.8",
+    "@types/cytoscape": "3.31.0",
     "@types/node": "26.6.5",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
