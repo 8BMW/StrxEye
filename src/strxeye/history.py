@@ -15,10 +15,18 @@ from .storage import NotFoundError, Store
 COMPARABLE = {"ok", "no_data", "partial"}
 
 
-def _facts(store: Store, inv_id: str, run_id: str, collectors: set[str]) -> dict[tuple, dict]:
+def _facts(observations: list[dict], pairs: set[tuple[str, str]] | None,
+           collectors: set[str]) -> dict[tuple, dict]:
     facts = {}
-    for obs in store.all_observations(inv_id, run_id):
-        if obs["source"] not in collectors:
+    for obs in observations:
+        # Compare a fact only if the collector ran on the same target, and
+        # completed, in both runs. Otherwise facts about entities that only
+        # one run expanded into would show up as changes. Runs recorded
+        # before targets were stored (pairs is None) fall back to matching
+        # by collector name.
+        if pairs is not None and (obs["source"], obs["collector_target"]) not in pairs:
+            continue
+        if pairs is None and obs["source"] not in collectors:
             continue
         key = (obs["entity_type"], obs["entity_value"], obs["kind"],
                json.dumps(obs["value"], sort_keys=True))
@@ -44,8 +52,12 @@ def diff_runs(store: Store, inv_id: str, older: str, newer: str) -> dict[str, An
     collectors = {name for name, _ in both}
     skipped = sorted({c["collector"] for c in a["collectors"] + b["collectors"]} - collectors)
 
-    old, new = _facts(store, inv_id, a["id"], collectors), _facts(store, inv_id, b["id"],
-                                                                   collectors)
+    obs_a = store.all_observations(inv_id, a["id"])
+    obs_b = store.all_observations(inv_id, b["id"])
+    legacy = any(o.get("collector_target") is None for o in obs_a + obs_b)
+    pairs = None if legacy else both
+    old = _facts(obs_a, pairs, collectors)
+    new = _facts(obs_b, pairs, collectors)
     return {
         "older": {"id": a["id"], "started_at": a["started_at"], "target": a["target_value"]},
         "newer": {"id": b["id"], "started_at": b["started_at"], "target": b["target_value"]},

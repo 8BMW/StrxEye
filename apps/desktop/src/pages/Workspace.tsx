@@ -10,6 +10,7 @@ import { EvidencePanel } from "./workspace/EvidencePanel";
 import { GraphPanel } from "./workspace/GraphPanel";
 import { HistoryPanel } from "./workspace/HistoryPanel";
 import { ReportPanel } from "./workspace/ReportPanel";
+import { MalwarePanel } from "./workspace/MalwarePanel";
 import { ThreatsPanel } from "./workspace/ThreatsPanel";
 import { TimelinePanel } from "./workspace/TimelinePanel";
 
@@ -18,6 +19,7 @@ const TAB_LABELS: Record<WorkspaceTab, string> = {
   entities: "Entities",
   graph: "Graph",
   threats: "Threats",
+  malware: "Malware",
   timeline: "Timeline",
   evidence: "Evidence",
   history: "History",
@@ -85,6 +87,7 @@ export function Workspace({ route }: { route: Extract<Route, { page: "investigat
         {route.tab === "entities" && <EntitiesPanel {...panelProps} />}
         {route.tab === "graph" && <GraphPanel {...panelProps} />}
         {route.tab === "threats" && <ThreatsPanel {...panelProps} />}
+        {route.tab === "malware" && <MalwarePanel {...panelProps} />}
         {route.tab === "timeline" && <TimelinePanel {...panelProps} />}
         {route.tab === "evidence" && <EvidencePanel {...panelProps} />}
         {route.tab === "history" && <HistoryPanel {...panelProps} />}

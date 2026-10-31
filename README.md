@@ -11,13 +11,18 @@
 # STRX EYE
 
 STRX EYE is a local-first OSINT and threat-intelligence workbench for domains,
-IP addresses, AS numbers, file hashes and companies. It pulls from public
-sources: DNS, RDAP registries, Certificate Transparency, passive DNS, BGP, Shodan
-InternetDB, block lists, AlienVault OTX, VirusTotal, the GLEIF company register
-and the Internet Archive. Every fact keeps its source, UTC timestamp, confidence
-and the raw response it was parsed from. Results come together as a graph, a
-timeline, a threat summary and full-text search, and export to HTML, JSON, CSV
-or STIX 2.1.
+IP addresses, AS numbers, file hashes, malware families and companies. 26
+collectors draw on 44 public sources, 39 of them without an API key: DNS, RDAP
+registries, Certificate Transparency, passive DNS, BGP and RPKI, Shodan
+InternetDB, 13 block lists, 6 DNS block lists, CISA KEV, EPSS, GreyNoise,
+urlscan.io, AlienVault OTX, abuse.ch, Malpedia, AbuseIPDB, VirusTotal, GLEIF and
+the Internet Archive.
+
+Every fact keeps its source, UTC timestamp, confidence and the raw response it
+was parsed from. Results come together as a graph, a timeline, a threat summary,
+a malware view and full-text search. Watched targets are re-collected on a
+schedule, with alerts when something changes. Everything exports to HTML, JSON,
+CSV or STIX 2.1.
 
 It runs as a Windows desktop app with an installer and auto-update, as portable
 builds for Linux and macOS, and as a Python package with the `strxeye`
@@ -43,13 +48,15 @@ command-line tool. All of them share one engine and one local database.
 ## Features
 
 **Collection**
-- 15 collectors across DNS, registration data, certificates, passive DNS, BGP,
-  open ports, block lists, threat reports, reputation, company registries and
-  web archives. The full list is under [Sources](#sources).
+- 26 collectors and 44 sources across DNS, registration data, certificates,
+  passive DNS, routing, open ports, block lists, threat reports, malware
+  intelligence, reputation, company registries and web archives. The full list
+  is under [Sources](#sources).
 - Passive by default. Nothing contacts the target unless you allow direct
   collection for a run. There is no port scanning.
-- Domain expansion: also look up owners, ASNs, block-list status and open ports
-  for every IP a domain resolves to.
+- Expansion: a domain's IPs get ownership, routing, block-list and open-port
+  lookups, and any malware family that turns up gets its Malpedia profile (and
+  its known C2 infrastructure from ThreatFox, with an abuse.ch key).
 - Concurrent collectors with per-collector timeouts, retries, rate limits and
   cancellation. A failed source is reported as failed, never silently skipped.
 
@@ -60,6 +67,36 @@ command-line tool. All of them share one engine and one local database.
 - Relationships seen by a source are kept apart from links STRX EYE suggests
   itself (shared IP, shared certificate, likely hosting provider). Suggested links
   are drawn dashed, carry low confidence and come with a written reason.
+
+**Monitoring**
+- Watch any target to have it re-collected every few hours, daily or weekly.
+  Each run is compared with the previous one, and real changes become alerts:
+  a new block listing, DNS, nameserver or mail changes, new subdomains, a new
+  certificate, open ports, registrar or RPKI changes.
+- Only (collector, target) pairs that succeeded in both runs are compared, so a
+  source outage or a newly expanded IP never shows up as a change.
+- Watches run while the app is open; `strxeye monitor run` covers Task
+  Scheduler or cron when it is not.
+
+**Malware intelligence**
+- Malware families from Feodo Tracker, SSLBL, OTX, VirusTotal, ThreatFox and
+  MalwareBazaar, profiled from Malpedia: aliases, description, references and
+  threat-actor attribution (labelled as an assessment, not a fact).
+- The Malware view lists each family with the infrastructure tied to it and the
+  sources behind every link. Investigate a family directly with `malware:Name`.
+- Guessed CVEs are checked against CISA's known-exploited catalogue and scored
+  with EPSS.
+
+**Correlation that avoids false links**
+- Strong signals (a shared analytics or ad account ID, the same self-hosted
+  nameserver, the same non-redacted registrant organisation) produce
+  "likely same operator" links. Weak ones (shared IP or certificate) only
+  produce "shared infrastructure".
+- Shared IPs on CDNs, large clouds and mass shared hosting, multi-tenant
+  certificates, big DNS providers and privacy-service registrants are
+  suppressed. The graph lists what was deliberately not linked, and why.
+- Independent signals combine (1 − ∏(1 − w)) and every inferred link explains
+  itself.
 
 **Analysis**
 - Interactive graph with type filters, folding, clusters, shortest path between
@@ -79,6 +116,11 @@ command-line tool. All of them share one engine and one local database.
 - Reports keep observations, inferred links and rule-based findings in separate,
   labelled sections.
 
+**Plugins**
+- `strxeye plugins new NAME` generates a working collector package with a
+  passing test. Installed plugins are not loaded until you trust that exact
+  version, in the app or the CLI.
+
 **Privacy and security**
 - Everything is stored in one local SQLite file. No account, no telemetry.
 - Optional API keys live in the OS keychain, never in files.
@@ -89,7 +131,7 @@ command-line tool. All of them share one engine and one local database.
 ## Screenshots
 
 All screenshots come from the running app on data collected from the live sources
-listed below, at version 1.0.1. The demo cases are python.org's public
+listed below, at versions 1.0.1 and 1.1.0. The demo cases are python.org's public
 infrastructure, two botnet C2 servers currently listed by abuse.ch with a Tor
 exit for comparison, and Cloudflare as a supplier.
 
@@ -104,6 +146,10 @@ exit for comparison, and Cloudflare as a supplier.
 **Threats**: two IPs from an alert queue are on the abuse.ch Feodo Tracker (Emotet and QakBot C2). Banner-based CVE guesses are grouped and marked as unverified.
 
 <img src="docs/media/threats.png" alt="Threats view with high-severity block-list hits" width="900">
+
+**Malware**: the families behind those IPs, profiled from Malpedia with aliases and attribution, and the infrastructure each is tied to.
+
+<img src="docs/media/malware.png" alt="Malware view with Emotet and QakBot profiles and linked C2 IPs" width="900">
 
 **Entity detail and evidence**: each value shows which source reported it and when, with a link to the stored raw response.
 
@@ -123,6 +169,10 @@ exit for comparison, and Cloudflare as a supplier.
   <tr>
     <td><img src="docs/media/report.png" alt="HTML report preview"></td>
     <td><img src="docs/media/overview.png" alt="Overview of investigations"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/monitor.png" alt="Monitoring watches on the Collect tab"></td>
+    <td><img src="docs/media/collectors.png" alt="Collector list with filter"></td>
   </tr>
   <tr>
     <td><img src="docs/media/graph-light.png" alt="Graph in the light theme"></td>
@@ -148,7 +198,7 @@ under *System Settings → Privacy & Security* the first time.
 **Python (any OS, 3.12+):**
 
 ```bash
-pip install "strxeye[desktop] @ https://github.com/8BMW/StrxEye/releases/download/v1.0.1/strxeye-1.0.1-py3-none-any.whl"
+pip install "strxeye[desktop] @ https://github.com/8BMW/StrxEye/releases/download/v1.1.0/strxeye-1.1.0-py3-none-any.whl"
 strxeye-desktop
 ```
 
@@ -164,7 +214,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 ```
 
 ```powershell
-Get-FileHash .\STRX-EYE-Setup-1.0.1.exe -Algorithm SHA256
+Get-FileHash .\STRX-EYE-Setup-1.1.0.exe -Algorithm SHA256
 ```
 
 ## Quick start
@@ -172,7 +222,7 @@ Get-FileHash .\STRX-EYE-Setup-1.0.1.exe -Algorithm SHA256
 1. Open STRX EYE and choose **New investigation**. Give it a name and note the
    scope you are authorised for.
 2. In **Collect**, enter a target: `example.com`, `8.8.8.8`, `AS13335`, a file
-   hash, or `org:Company Name`. Applicable collectors are pre-selected. Keep
+   hash, `org:Company Name` or `malware:Family`. Applicable collectors are pre-selected. Keep
    *Expand discovered IPs* on for domains.
 3. Watch each collector finish. Failures show the reason, such as "crt.sh returned
    HTTP 502".
@@ -180,31 +230,48 @@ Get-FileHash .\STRX-EYE-Setup-1.0.1.exe -Algorithm SHA256
    see where it came from, and *evidence* to see the raw response.
 5. Export from **Report**: HTML for people, STIX for platforms.
 
-API keys are optional. VirusTotal needs one. With an OTX key, OTX allows more
-requests. Add keys under *Settings → API keys* or with `strxeye keys set virustotal`.
+6. To keep an eye on a target, add it under **Monitoring** on the Collect tab.
+   Changes appear under **Alerts**.
+
+API keys are optional and free for every service listed: abuse.ch (one Auth-Key
+for ThreatFox, URLhaus and MalwareBazaar), AbuseIPDB and VirusTotal; an OTX key
+raises OTX limits. Add them under *Settings → API keys* or with
+`strxeye keys set abusech`.
 
 ## Sources
 
-| Collector | Accepts | Collects | Contacts | Key |
+| Collector | Accepts | Collects | Sources | Key |
 |---|---|---|---|---|
 | `dns` | domain | A, AAAA, CNAME, MX, NS, TXT/SPF, SOA, CAA, DMARC | your resolver | – |
+| `mailsec` | domain | MTA-STS, TLS-RPT, BIMI, DKIM keys for common selectors | your resolver | – |
 | `rdap` | domain, IP, ASN | registrar, dates, status, DNSSEC; network owner; AS holder | IANA + registry/RIR | – |
 | `crtsh` | domain | certificates and subdomains from CT logs | crt.sh | – |
-| `certspotter` | domain | unexpired certificates and subdomains | api.certspotter.com | – |
-| `passive_dns` | domain, IP | historical resolutions with first/last seen | api.mnemonic.no | – |
+| `certspotter` | domain | unexpired certificates and subdomains | Cert Spotter | – |
+| `passive_dns` | domain, IP | historical resolutions with first/last seen | mnemonic PassiveDNS | – |
+| `hackertarget` | domain, IP | subdomains with IPs; other domains on an IP | HackerTarget | – |
+| `urlscan` | domain, IP | recent public scans: pages, servers, titles | urlscan.io | – |
 | `reverse_dns` | IP | PTR records | your resolver | – |
-| `asn` | IP, ASN | announcing AS, BGP prefix, AS name | Team Cymru (DNS) | – |
-| `internetdb` | IP | open ports, hostnames, software, CVE guesses | internetdb.shodan.io | – |
-| `threatfeeds` | IP | Spamhaus DROP, Feodo Tracker, Tor exit list | list downloads only | – |
-| `otx` | domain, IP, hash | community threat reports, malware families | otx.alienvault.com | optional |
-| `virustotal` | domain, IP, hash | engine verdicts, reputation, threat label | virustotal.com | required |
-| `gleif` | organisation | legal entities, jurisdiction, status, parent | api.gleif.org | – |
-| `wayback` | domain, URL | first/latest capture, one per year | web.archive.org | – |
-| `http` *(direct)* | domain, URL | status, redirects, security headers, cookie flags, technologies, robots.txt | the target | – |
-| `tls` *(direct)* | domain, URL | served certificate, protocol, validation | the target | – |
+| `asn` | IP, ASN | announcing AS, BGP prefix, AS name | Team Cymru | – |
+| `ripestat` | IP, ASN | routing, RPKI validity, abuse contact, geolocation estimate | RIPEstat | – |
+| `peeringdb` | ASN | network type, website, policy | PeeringDB | – |
+| `robtex` | IP | passive DNS and BGP route | Robtex | – |
+| `internetdb` | IP | open ports, hostnames, software, CVE guesses with KEV and EPSS | Shodan InternetDB, CISA KEV, FIRST EPSS | – |
+| `greynoise` | IP | internet scanner or known benign service | GreyNoise Community | – |
+| `threatfeeds` | IP, domain | 13 lists, matched locally: Spamhaus DROP, Feodo Tracker, FireHOL L1, ET compromised, Binary Defense, IPsum, CINS Army, blocklist.de, GreenSnow, DShield, Tor exits, Phishing Army, OpenPhish | list downloads | – |
+| `dnsbl` | IP | Spamhaus ZEN, SpamCop, Barracuda, DroneBL, PSBL, s5h | your resolver | – |
+| `otx` | domain, IP, hash | community threat reports, malware families | AlienVault OTX | optional |
+| `virustotal` | domain, IP, hash | engine verdicts, reputation, threat label | VirusTotal | required |
+| `abusech` | IP, domain, hash, malware | IOCs, malware URLs, samples; a family's C2 infrastructure | ThreatFox, URLhaus, MalwareBazaar | required |
+| `abuseipdb` | IP | abuse reports and confidence score | AbuseIPDB | required |
+| `malpedia` | malware | aliases, description, threat-actor attribution | Malpedia | – |
+| `gleif` | organisation | legal entities, jurisdiction, status, parent | GLEIF | – |
+| `wayback` | domain, URL | first/latest capture, one per year | Internet Archive | – |
+| `http` *(direct)* | domain, URL | status, redirects, security headers, cookie flags, technologies, tracking IDs, robots.txt | the target | – |
+| `tls` *(direct)* | domain, URL | served certificate, protocol, validation; SSLBL check | the target, abuse.ch SSLBL | – |
 
-Block lists are downloaded whole and matched locally, so the IPs you check are
-never sent to the list operators.
+Lists are downloaded whole and matched locally, so the IPs and domains you check
+are never sent to the list operators. DNS block lists are queried through your
+own resolver.
 
 **Out of scope:** STRX EYE does not search for private individuals. There is no
 people search, no phone-number lookup, no personal emails and no social-media
@@ -220,10 +287,16 @@ strxeye domain example.com --expand        # look up a domain and its IPs
 strxeye ip 1.1.1.1
 strxeye hash 44d88612fea8a8f36de82e1278abb02f
 strxeye org "Cloudflare"
+strxeye malware Emotet                     # Malpedia profile (+ ThreatFox infrastructure with a key)
 
 strxeye investigate create "Alert 4512" -d "Outbound beacon from host WS-114"
 strxeye investigate run 3fa2 185.220.101.4  # IDs can be shortened
 strxeye investigate threats 3fa2
+strxeye investigate malware 3fa2
+strxeye monitor add 3fa2 example.com --every 24h
+strxeye monitor run                          # run due watches (for Task Scheduler / cron)
+strxeye alerts
+strxeye plugins new my_source                # scaffold a plugin package
 strxeye investigate timeline 3fa2
 strxeye graph path 3fa2 example.com AS13335
 strxeye search 185.220.101                  # across all investigations
@@ -260,13 +333,22 @@ application's reach.
   OTX allow-lists an indicator (for example a popular domain), its pulses are
   counted but not imported.
 - **VirusTotal** free keys allow 4 requests a minute; the collector waits.
+- **Free tiers:** HackerTarget allows 50 queries a day and GreyNoise Community
+  covers IPv4 only, with daily limits. When a quota runs out the collector
+  reports an error instead of returning nothing.
+- **DNS block lists** answer only some resolvers. Spamhaus refuses queries from
+  large public resolvers, and those refusals are reported, not read as a listing.
+- **Malpedia attribution** summarises published research. It is shown as an
+  assessment.
+- **Monitoring** runs only while STRX EYE is open, unless you schedule
+  `strxeye monitor run`.
 - **GLEIF** searches by name, so results are candidates until you confirm them.
 - **Clusters and paths** describe the collected graph, not the real world. Shared
   hosting is not shared ownership.
 - **Not code-signed yet:** SmartScreen and Gatekeeper warn on first launch.
-- **Not included yet:** scheduled re-collection with alerts, pushing to TAXII
-  servers, multi-user collaboration, direct PDF export (print the HTML report
-  instead), and the AI assistant planned for a later release.
+- **Not included yet:** pushing to TAXII servers, multi-user collaboration,
+  direct PDF export (print the HTML report instead), and the AI assistant
+  planned for a later release.
 
 ## Development
 

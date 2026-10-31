@@ -70,6 +70,27 @@ class SettingChange(BaseModel):
     value: str = Field(max_length=2000)
 
 
+class NewWatch(BaseModel):
+    target: str = Field(min_length=1, max_length=2000)
+    every: str = Field(default="24h", max_length=10)
+    direct: bool = False
+    expand: bool = True
+
+
+class WatchUpdate(BaseModel):
+    enabled: bool
+
+
+class AlertIds(BaseModel):
+    ids: list[int] | None = None
+
+
+class PluginTrust(BaseModel):
+    # The UI must send the exact version it showed the user, so trusting
+    # cannot silently apply to a different version installed meanwhile.
+    version: str
+
+
 class KeyValue(BaseModel):
     value: str = Field(min_length=1, max_length=500)
 
@@ -82,7 +103,8 @@ class ActiveRun:
 
 
 def create_app(store: Store, token: str, engine_factory=None,
-               static_dir: Path | None = None, exit_after_update=None) -> FastAPI:
+               static_dir: Path | None = None, exit_after_update=None,
+               run_scheduler: bool = True) -> FastAPI:
     active: dict[str, ActiveRun] = {}
     update_cache: dict[str, object] = {}
 
@@ -91,10 +113,17 @@ def create_app(store: Store, token: str, engine_factory=None,
             return engine_factory(store)
         return Engine(load_settings(), store)
 
+    from .monitor import Scheduler
+
+    scheduler = Scheduler(lambda s: make_engine(), store)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         store.fail_interrupted_runs()
+        if run_scheduler:
+            scheduler.start()
         yield
+        await scheduler.stop()
         for run in active.values():
             run.cancel.set()
         await asyncio.gather(*(r.task for r in active.values()), return_exceptions=True)
@@ -214,6 +243,97 @@ def create_app(store: Store, token: str, engine_factory=None,
         if exit_after_update:
             asyncio.get_running_loop().call_later(1.5, exit_after_update)
         return {"installing": info.latest}
+
+    # Monitoring -------------------------------------------------------------
+
+    @app.get("/api/watches")
+    def watches(investigation: str | None = None):
+        inv = store.resolve_investigation_id(investigation) if investigation else None
+        return store.list_watches(inv)
+
+    @app.post("/api/investigations/{inv_id}/watches", status_code=201)
+    def add_watch(inv_id: str, body: NewWatch):
+        from .monitor import parse_interval
+
+        inv = store.get_investigation(inv_id)
+        try:
+            target = parse_target(body.target)
+            hours = parse_interval(body.every)
+        except (TargetError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from None
+        watch_id = store.add_watch(inv.id, target, hours,
+                                   {"direct": body.direct, "expand": body.expand})
+        return store.get_watch(watch_id)
+
+    @app.patch("/api/watches/{watch_id}")
+    def update_watch(watch_id: int, body: WatchUpdate):
+        store.set_watch_enabled(watch_id, body.enabled)
+        return store.get_watch(watch_id)
+
+    @app.delete("/api/watches/{watch_id}", status_code=204)
+    def delete_watch(watch_id: int):
+        store.delete_watch(watch_id)
+        return Response(status_code=204)
+
+    @app.post("/api/watches/{watch_id}/run")
+    async def run_watch_now(watch_id: int):
+        from .monitor import run_watch
+
+        watch = store.get_watch(watch_id)
+        async with scheduler._lock:  # do not overlap with a scheduled run
+            return await run_watch(make_engine(), store, watch)
+
+    @app.post("/api/watches/run-due")
+    async def run_due_now():
+        return await scheduler.tick()
+
+    @app.get("/api/alerts")
+    def alerts(unread: bool = False, investigation: str | None = None):
+        inv = store.resolve_investigation_id(investigation) if investigation else None
+        return store.list_alerts(unread_only=unread, inv_id=inv)
+
+    @app.get("/api/alerts/unread-count")
+    def unread_count():
+        return {"unread": store.unread_alert_count()}
+
+    @app.post("/api/alerts/read")
+    def read_alerts(body: AlertIds):
+        return {"marked": store.mark_alerts_read(body.ids)}
+
+    # Plugins ------------------------------------------------------------------
+
+    @app.get("/api/plugins")
+    def plugin_list():
+        from .plugins import discover, info_dict
+
+        settings = load_settings()
+        return [info_dict(p, settings) for p in discover()]
+
+    @app.post("/api/plugins/{name}/trust")
+    def plugin_trust(name: str, body: PluginTrust):
+        from .plugins import discover
+
+        match = [p for p in discover() if p.name == name]
+        if not match:
+            raise HTTPException(404, f"no installed plugin named '{name}'")
+        plugin = match[0]
+        if plugin.version != body.version:
+            raise HTTPException(409, f"installed version is {plugin.version}, not {body.version}")
+        settings = load_settings()
+        settings.plugins.trusted = [t for t in settings.plugins.trusted
+                                    if not t.startswith(f"{name}==")] + [plugin.trust_key]
+        save_settings(settings)
+        store.audit("plugin.trust", None, {"plugin": plugin.trust_key, "via": "app"})
+        return {"trusted": plugin.trust_key}
+
+    @app.delete("/api/plugins/{name}/trust", status_code=204)
+    def plugin_untrust(name: str):
+        settings = load_settings()
+        settings.plugins.trusted = [t for t in settings.plugins.trusted
+                                    if not t.startswith(f"{name}==")]
+        save_settings(settings)
+        store.audit("plugin.untrust", None, {"plugin": name, "via": "app"})
+        return Response(status_code=204)
 
     @app.get("/api/search")
     def search(q: str = Query(min_length=1, max_length=200), investigation: str | None = None,
@@ -340,6 +460,11 @@ def create_app(store: Store, token: str, engine_factory=None,
         if path is None:
             raise HTTPException(404, "these entities are not connected")
         return path
+
+    @app.get("/api/investigations/{inv_id}/malware")
+    def malware(inv_id: str):
+        inv = store.resolve_investigation_id(inv_id)
+        return analytics.malware_view(build_graph(store, inv, True), store.all_observations(inv))
 
     @app.get("/api/investigations/{inv_id}/threats")
     def threat_summary(inv_id: str):

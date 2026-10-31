@@ -6,6 +6,11 @@ updates:
   - package-ecosystem: npm
     directory: /apps/desktop
     schedule: { interval: weekly }
+    groups:
+      # Vite, its React plugin, Vitest and Tailwind depend on each other across
+      # major versions; they have to be upgraded and tested together.
+      frontend-toolchain:
+        patterns: ["vite", "@vitejs/*", "vitest", "tailwindcss", "postcss", "autoprefixer"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }

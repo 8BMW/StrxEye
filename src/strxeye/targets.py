@@ -75,6 +75,8 @@ def parse_target(raw: str, expected: EntityType | None = None) -> EntityRef:
         return EntityRef(type=EntityType.ASN, value=normalize_asn(text))
     if expected is EntityType.ORGANIZATION:
         return EntityRef(type=EntityType.ORGANIZATION, value=normalize_org(text))
+    if expected is EntityType.MALWARE:
+        return EntityRef(type=EntityType.MALWARE, value=normalize_org(text))
     if expected is EntityType.HASH:
         return EntityRef(type=EntityType.HASH, value=normalize_hash(text))
     if expected is not None and expected is not EntityType.URL:
@@ -82,6 +84,8 @@ def parse_target(raw: str, expected: EntityType | None = None) -> EntityRef:
 
     if text.lower().startswith("org:"):
         return EntityRef(type=EntityType.ORGANIZATION, value=normalize_org(text[4:]))
+    if text.lower().startswith("malware:"):
+        return EntityRef(type=EntityType.MALWARE, value=normalize_org(text[8:]))
     if "://" in text or expected is EntityType.URL:
         return EntityRef(type=EntityType.URL, value=normalize_url(text))
 
@@ -99,7 +103,7 @@ def parse_target(raw: str, expected: EntityType | None = None) -> EntityRef:
     except TargetError:
         raise TargetError(
             f"could not recognise '{raw}' as a domain, IP address, AS number, URL or hash "
-            "(prefix company names with org:)"
+            "(prefix company names with org: and malware families with malware:)"
         ) from None
 
 

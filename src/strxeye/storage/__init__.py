@@ -272,11 +272,11 @@ class Store:
             for obs in result.observations:
                 db.execute(
                     "INSERT INTO observations (investigation_id, run_id, entity_id, kind, value,"
-                    " source, method, source_url, confidence, evidence_id, collected_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " source, method, source_url, confidence, evidence_id, collected_at,"
+                    " collector_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (inv_id, run_id, entity_id(obs.entity), obs.kind, _json(obs.value),
                      obs.source, obs.method, obs.source_url, obs.confidence, obs.evidence_id,
-                     _iso(obs.collected_at)))
+                     _iso(obs.collected_at), result.target.value))
             for rel in result.relationships:
                 db.execute(
                     "INSERT INTO relationships (investigation_id, run_id, source_id, target_id,"
@@ -419,6 +419,129 @@ class Store:
                 if rows:
                     out["evidence"].append({**base, **dict(rows[0])})
         return out
+
+    # Monitoring -----------------------------------------------------------
+
+    def add_watch(self, inv_id: str, target: EntityRef, interval_hours: float,
+                  options: dict[str, Any]) -> int:
+        if interval_hours < 1:
+            raise ValueError("the shortest monitoring interval is 1 hour")
+        now = _now()
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO watches (investigation_id, target_type, target_value, interval_hours,"
+                " options, created_at, next_run_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT (investigation_id, target_type, target_value) DO UPDATE SET"
+                " interval_hours = excluded.interval_hours, options = excluded.options,"
+                " enabled = 1",
+                (inv_id, target.type.value, target.value, interval_hours, _json(options),
+                 now, now))
+        watch_id = self._query(
+            "SELECT id FROM watches WHERE investigation_id = ? AND target_type = ?"
+            " AND target_value = ?", (inv_id, target.type.value, target.value))[0]["id"]
+        self.audit("watch.add", inv_id, {"target": target.key, "every_hours": interval_hours})
+        return watch_id
+
+    def _watch_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {**dict(row), "options": json.loads(row["options"]),
+                "enabled": bool(row["enabled"])}
+
+    def list_watches(self, inv_id: str | None = None) -> list[dict[str, Any]]:
+        sql = ("SELECT w.*, i.name AS investigation FROM watches w"
+               " JOIN investigations i ON i.id = w.investigation_id")
+        params: tuple = ()
+        if inv_id:
+            sql += " WHERE w.investigation_id = ?"
+            params = (inv_id,)
+        return [self._watch_row(r) for r in self._query(sql + " ORDER BY w.next_run_at", params)]
+
+    def get_watch(self, watch_id: int) -> dict[str, Any]:
+        rows = self._query("SELECT w.*, i.name AS investigation FROM watches w JOIN"
+                           " investigations i ON i.id = w.investigation_id WHERE w.id = ?",
+                           (watch_id,))
+        if not rows:
+            raise NotFoundError(f"no watch with id {watch_id}")
+        return self._watch_row(rows[0])
+
+    def set_watch_enabled(self, watch_id: int, enabled: bool) -> None:
+        watch = self.get_watch(watch_id)
+        with self._tx() as db:
+            db.execute("UPDATE watches SET enabled = ? WHERE id = ?", (int(enabled), watch_id))
+        self.audit("watch.enable" if enabled else "watch.disable", watch["investigation_id"],
+                   {"watch": watch_id})
+
+    def delete_watch(self, watch_id: int) -> None:
+        watch = self.get_watch(watch_id)
+        with self._tx() as db:
+            db.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
+        self.audit("watch.delete", watch["investigation_id"], {"watch": watch_id})
+
+    def due_watches(self, now: datetime | None = None) -> list[dict[str, Any]]:
+        stamp = (now or utcnow()).isoformat()
+        return [self._watch_row(r) for r in self._query(
+            "SELECT w.*, i.name AS investigation FROM watches w JOIN investigations i"
+            " ON i.id = w.investigation_id WHERE w.enabled = 1 AND w.next_run_at <= ?"
+            " ORDER BY w.next_run_at", (stamp,))]
+
+    def record_watch_run(self, watch_id: int, run_id: str | None, error: str | None,
+                         next_run_at: datetime) -> None:
+        with self._tx() as db:
+            db.execute("UPDATE watches SET last_run_at = ?, last_run_id = COALESCE(?, last_run_id),"
+                       " last_error = ?, next_run_at = ? WHERE id = ?",
+                       (_now(), run_id, error, next_run_at.isoformat(), watch_id))
+
+    def previous_completed_run(self, inv_id: str, target: EntityRef,
+                               before_run: str) -> str | None:
+        current = self.get_run(before_run)
+        rows = self._query(
+            "SELECT id FROM runs WHERE investigation_id = ? AND target_type = ? AND"
+            " target_value = ? AND status = 'completed' AND started_at < ? AND id != ?"
+            " ORDER BY started_at DESC LIMIT 1",
+            (inv_id, target.type.value, target.value, current["started_at"], before_run))
+        return rows[0]["id"] if rows else None
+
+    def add_alerts(self, alerts: list[dict[str, Any]]) -> int:
+        now = _now()
+        with self._tx() as db:
+            for a in alerts:
+                db.execute(
+                    "INSERT INTO alerts (investigation_id, watch_id, run_id, created_at, severity,"
+                    " title, detail) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (a["investigation_id"], a.get("watch_id"), a.get("run_id"), now,
+                     a["severity"], a["title"], _json(a.get("detail", {}))))
+        return len(alerts)
+
+    def list_alerts(self, unread_only: bool = False, inv_id: str | None = None,
+                    limit: int = 500) -> list[dict[str, Any]]:
+        sql = ("SELECT a.*, i.name AS investigation FROM alerts a JOIN investigations i"
+               " ON i.id = a.investigation_id WHERE 1 = 1")
+        params: list[Any] = []
+        if unread_only:
+            sql += " AND a.read_at IS NULL"
+        if inv_id:
+            sql += " AND a.investigation_id = ?"
+            params.append(inv_id)
+        # Newest first; within one run, most severe first.
+        sql += (" ORDER BY a.created_at DESC, CASE a.severity WHEN 'high' THEN 0"
+                " WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END, a.id LIMIT ?")
+        params.append(limit)
+        return [{**dict(r), "detail": json.loads(r["detail"])}
+                for r in self._query(sql, tuple(params))]
+
+    def unread_alert_count(self) -> int:
+        return self._query("SELECT COUNT(*) FROM alerts WHERE read_at IS NULL")[0][0]
+
+    def mark_alerts_read(self, ids: list[int] | None = None) -> int:
+        with self._tx() as db:
+            if ids is None:
+                cur = db.execute("UPDATE alerts SET read_at = ? WHERE read_at IS NULL", (_now(),))
+            else:
+                total = 0
+                for alert_id in ids:
+                    total += db.execute("UPDATE alerts SET read_at = ? WHERE read_at IS NULL"
+                                        " AND id = ?", (_now(), alert_id)).rowcount
+                return total
+            return cur.rowcount
 
     # Audit ----------------------------------------------------------------
 

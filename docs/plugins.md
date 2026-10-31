@@ -3,6 +3,20 @@
 A plugin is a normal Python package that exposes a `Collector` subclass through
 the `strxeye.collectors` entry point group.
 
+## Quick start
+
+```bash
+strxeye plugins new my_source          # creates ./strxeye-plugin-my-source
+cd strxeye-plugin-my-source
+pip install -e ".[dev]"
+pytest                                 # the generated test passes as-is
+strxeye plugins trust my_source        # or Plugins → Trust in the app
+strxeye domain example.com -c my_source
+```
+
+The generated collector works as generated (it reads a domain's TXT records),
+so you start from something that runs and replace its body with your source.
+
 ## Minimal example
 
 `pyproject.toml`:
@@ -73,6 +87,11 @@ strxeye plugins list                 # shows it as untrusted; nothing is importe
 strxeye plugins trust securitytxt    # shows a warning and asks for confirmation
 strxeye collectors                   # now includes "securitytxt"
 ```
+
+In the app, *Plugins* lists installed packages from their metadata without
+importing them. Trusting asks you to type the plugin's name and is bound to the
+version shown; if a different version was installed in the meantime the request
+is refused.
 
 Trust is stored as `name==version` in the config file. Upgrading the plugin
 makes it untrusted again until you re-run `trust`. `strxeye plugins untrust

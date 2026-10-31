@@ -10,6 +10,16 @@ from .crtsh import CrtShCollector
 from .dns_records import DnsCollector, ReverseDnsCollector
 from .gleif import GleifCollector
 from .internetdb import InternetDbCollector
+from .mail_dnsbl import DnsblCollector, MailSecurityCollector
+from .malware_intel import AbuseChCollector, AbuseIpdbCollector, MalpediaCollector
+from .network_intel import (
+    GreyNoiseCollector,
+    HackerTargetCollector,
+    PeeringDbCollector,
+    RipeStatCollector,
+    RobtexCollector,
+    UrlscanCollector,
+)
 from .passive_dns import PassiveDnsCollector
 from .rdap import RdapCollector
 from .reputation import OtxCollector, VirusTotalCollector
@@ -19,16 +29,27 @@ from .website import HttpCollector, TlsCollector
 
 BUILTIN: tuple[type[Collector], ...] = (
     DnsCollector,
+    MailSecurityCollector,
     RdapCollector,
     CrtShCollector,
     CertSpotterCollector,
     PassiveDnsCollector,
+    HackerTargetCollector,
+    UrlscanCollector,
     ReverseDnsCollector,
     AsnCollector,
+    RipeStatCollector,
+    PeeringDbCollector,
+    RobtexCollector,
     InternetDbCollector,
+    GreyNoiseCollector,
     ThreatFeedCollector,
+    DnsblCollector,
     OtxCollector,
     VirusTotalCollector,
+    AbuseChCollector,
+    AbuseIpdbCollector,
+    MalpediaCollector,
     GleifCollector,
     WaybackCollector,
     HttpCollector,

@@ -2,11 +2,11 @@
 
 export type EntityType =
   | "domain" | "ip" | "network" | "asn" | "organization" | "certificate"
-  | "url" | "technology" | "hash" | "indicator" | "malware";
+  | "url" | "technology" | "hash" | "indicator" | "malware" | "threat_actor";
 
 export const ENTITY_TYPES: EntityType[] = [
   "domain", "ip", "network", "asn", "organization", "certificate", "url", "technology",
-  "hash", "indicator", "malware",
+  "hash", "indicator", "malware", "threat_actor",
 ];
 
 export type CollectionStatus =
@@ -159,6 +159,7 @@ export interface Graph {
   investigation: { id: string; name: string };
   nodes: GraphNode[];
   edges: GraphEdge[];
+  suppressed?: string[];
 }
 
 export interface EvidenceItem {
@@ -273,4 +274,66 @@ export interface UpdateInfo {
   notes: string;
   installer_name: string | null;
   can_self_install: boolean;
+}
+
+export interface Watch {
+  id: number;
+  investigation_id: string;
+  investigation: string;
+  target_type: EntityType;
+  target_value: string;
+  interval_hours: number;
+  options: { direct?: boolean; expand?: boolean };
+  enabled: boolean;
+  created_at: string;
+  last_run_at: string | null;
+  last_run_id: string | null;
+  last_error: string | null;
+  next_run_at: string;
+}
+
+export interface Alert {
+  id: number;
+  investigation_id: string;
+  investigation: string;
+  watch_id: number | null;
+  run_id: string | null;
+  created_at: string;
+  severity: "high" | "medium" | "low" | "info";
+  title: string;
+  detail: { summary?: string; added?: string[]; removed?: string[]; entity?: string;
+    older_run?: string; newer_run?: string; not_compared?: string[] };
+  read_at: string | null;
+}
+
+export interface MalwareLink {
+  id: number;
+  type: EntityType;
+  value: string;
+  relationship: string;
+  confidence: number;
+  inferred: boolean;
+  sources: string[];
+}
+
+export interface MalwareFamily {
+  id: number;
+  name: string;
+  attributes: Record<string, unknown>;
+  profile: { malpedia_id?: string; common_name?: string; aliases?: string[];
+    attribution?: string[]; description?: string; references?: number; url?: string;
+    updated?: string } | null;
+  actors: MalwareLink[];
+  infrastructure: MalwareLink[];
+}
+
+export interface PluginInfo {
+  name: string;
+  package: string;
+  version: string;
+  entry_point: string;
+  summary: string | null;
+  homepage: string | null;
+  trusted: boolean;
+  trust_key: string;
 }

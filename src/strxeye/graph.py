@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import __version__
-from .correlation import infer
+from .correlation import analyze
 from .models import utcnow
 from .storage import Store
 
@@ -54,8 +54,11 @@ def build_graph(store: Store, inv_id: str, include_inferred: bool = True) -> dic
         })
     edges = list(merged.values())
 
+    suppressed: list[str] = []
     if include_inferred:
-        for i, edge in enumerate(infer(nodes, edges)):
+        observations = store.all_observations(investigation.id)
+        inferred, suppressed = analyze(nodes, edges, observations)
+        for i, edge in enumerate(inferred):
             edges.append({"id": f"i{i}", **edge})
 
     return {
@@ -66,4 +69,6 @@ def build_graph(store: Store, inv_id: str, include_inferred: bool = True) -> dic
         "investigation": {"id": investigation.id, "name": investigation.name},
         "nodes": list(nodes.values()),
         "edges": edges,
+        # Shared infrastructure that was deliberately not linked, with reasons.
+        "suppressed": suppressed,
     }

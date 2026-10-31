@@ -1,5 +1,5 @@
 import type {
-  Analytics, AuditEntry, ThreatRow, Diff, EntityDetail, EntityRow, EvidenceItem, Graph, Investigation,
+  Alert, Analytics, AuditEntry, MalwareFamily, PluginInfo, ThreatRow, Watch, Diff, EntityDetail, EntityRow, EvidenceItem, Graph, Investigation,
   InvestigationSummary, KeyStatus, Meta, PathResult, RunDetail, SearchResults, Settings,
   TimelineEvent, UpdateInfo,
 } from "./types";
@@ -68,6 +68,23 @@ export const api = {
   deleteKey: (name: string) => request<void>(`/keys/${enc(name)}`, { method: "DELETE" }),
   checkUpdate: (force = false) => request<UpdateInfo>(`/update${q({ force: force || undefined })}`),
   installUpdate: () => request<{ installing: string }>("/update/install", { method: "POST" }),
+  watches: (investigation?: string) => request<Watch[]>(`/watches${q({ investigation })}`),
+  addWatch: (id: string, body: { target: string; every: string; direct: boolean; expand: boolean }) =>
+    request<Watch>(`/investigations/${enc(id)}/watches`, { method: "POST", body: JSON.stringify(body) }),
+  setWatchEnabled: (watchId: number, enabled: boolean) =>
+    request<Watch>(`/watches/${watchId}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
+  deleteWatch: (watchId: number) => request<void>(`/watches/${watchId}`, { method: "DELETE" }),
+  runWatch: (watchId: number) =>
+    request<{ run_id: string | null; alerts: number; error: string | null }>(`/watches/${watchId}/run`, { method: "POST" }),
+  runDueWatches: () => request<unknown[]>("/watches/run-due", { method: "POST" }),
+  alerts: (unread = false) => request<Alert[]>(`/alerts${q({ unread: unread || undefined })}`),
+  unreadAlerts: () => request<{ unread: number }>("/alerts/unread-count"),
+  markAlertsRead: (ids?: number[]) =>
+    request<{ marked: number }>("/alerts/read", { method: "POST", body: JSON.stringify({ ids: ids ?? null }) }),
+  plugins: () => request<PluginInfo[]>("/plugins"),
+  trustPlugin: (name: string, version: string) =>
+    request<{ trusted: string }>(`/plugins/${enc(name)}/trust`, { method: "POST", body: JSON.stringify({ version }) }),
+  untrustPlugin: (name: string) => request<void>(`/plugins/${enc(name)}/trust`, { method: "DELETE" }),
   search: (text: string, investigation?: string) =>
     request<SearchResults>(`/search${q({ q: text, investigation })}`),
 
@@ -93,6 +110,7 @@ export const api = {
   analytics: (id: string) => request<Analytics>(`/investigations/${enc(id)}/analytics`),
   path: (id: string, source: number, target: number, inferred: boolean) =>
     request<PathResult>(`/investigations/${enc(id)}/path${q({ source, target, inferred })}`),
+  malware: (id: string) => request<MalwareFamily[]>(`/investigations/${enc(id)}/malware`),
   threats: (id: string) => request<ThreatRow[]>(`/investigations/${enc(id)}/threats`),
   timeline: (id: string) => request<TimelineEvent[]>(`/investigations/${enc(id)}/timeline`),
   evidenceList: (id: string) => request<EvidenceItem[]>(`/investigations/${enc(id)}/evidence`),

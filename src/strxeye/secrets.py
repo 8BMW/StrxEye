@@ -16,6 +16,8 @@ SERVICE = "strxeye"
 KNOWN_KEYS: dict[str, str] = {
     "virustotal": "VirusTotal API key (required by the virustotal collector)",
     "otx": "AlienVault OTX API key (optional; raises OTX rate limits)",
+    "abusech": "abuse.ch Auth-Key (free; URLhaus, ThreatFox and MalwareBazaar lookups)",
+    "abuseipdb": "AbuseIPDB API key (free tier; IP abuse reports)",
 }
 
 

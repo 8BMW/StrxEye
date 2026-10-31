@@ -26,6 +26,9 @@ const PATHS: Record<string, string> = {
   moon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z",
   command: "M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z",
   warning: "M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z",
+  bell: "M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0",
+  plug: "M9 2v6m6-6v6M6 8h12v4a6 6 0 0 1-12 0zm6 10v4",
+  eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
 };
 
 export function Icon({ name, size = 16, className = "" }: { name: keyof typeof PATHS | string; size?: number; className?: string }) {
@@ -69,7 +72,7 @@ export function TypeBadge({ type }: { type: EntityType | string }) {
   return (
     <span className="chip gap-1 whitespace-nowrap" style={{ borderColor: `${color}66`, color }}>
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-      {type}
+      {String(type).replace("_", " ")}
     </span>
   );
 }

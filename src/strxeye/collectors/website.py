@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import csv
+import json
 import re
 import ssl
+import time
 from datetime import UTC, datetime
 from urllib.parse import urljoin, urlsplit
 
@@ -24,8 +27,9 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 
+from ..config import cache_dir
 from ..models import EntityRef, EntityType, RelationType
-from ..net import FetchError, ensure_public_host
+from ..net import FetchError, ensure_public_host, fetch
 from ..targets import TargetError, host_of, normalize_url
 from .base import Collector, CollectorContext, Findings
 from .crtsh import issuer_org
@@ -61,6 +65,17 @@ BODY_TECH = (
 _GENERATOR = re.compile(rb"<meta[^>]+name=[\"']generator[\"'][^>]+content=[\"']([^\"']{1,100})",
                         re.IGNORECASE)
 _TITLE = re.compile(rb"<title[^>]*>([^<]{1,300})</title>", re.IGNORECASE)
+# Analytics and ad account IDs embedded in pages. The same ID on two sites
+# usually means the same operator, which makes them one of the strongest
+# correlation signals available from public data.
+TRACKING_IDS = (
+    ("google_analytics", re.compile(rb"\b(UA-\d{4,10}-\d{1,4})\b")),
+    ("google_tag", re.compile(rb"\b(G-[A-Z0-9]{8,12})\b")),
+    ("google_tag_manager", re.compile(rb"\b(GTM-[A-Z0-9]{4,9})\b")),
+    ("adsense", re.compile(rb"\b(ca-pub-\d{10,20})\b")),
+    ("meta_pixel", re.compile(rb"fbq\(\s*['\"]init['\"]\s*,\s*['\"](\d{15,16})['\"]")),
+    ("yandex_metrica", re.compile(rb"ym\(\s*(\d{6,10})\s*,\s*['\"]init")),
+)
 
 
 def start_url(target: EntityRef) -> str:
@@ -187,6 +202,14 @@ class HttpCollector(Collector):
             found.relate(target, RelationType.USES_TECHNOLOGY, ref, evidence_id=evidence,
                          confidence=0.9 if "header" in reason else 0.7)
 
+        seen_ids = set()
+        for id_type, pattern in TRACKING_IDS:
+            for m in pattern.finditer(body):
+                tracking = m.group(1).decode("ascii", "replace")
+                if tracking not in seen_ids:
+                    seen_ids.add(tracking)
+                    found.observe(target, "http.tracking_id", {"type": id_type, "id": tracking},
+                                  **obs)
         if (match := _TITLE.search(body)):
             found.observe(target, "http.title",
                           match.group(1).decode("utf-8", "replace").strip(), **obs)
@@ -225,7 +248,8 @@ class HttpCollector(Collector):
 class TlsCollector(Collector):
     name = "tls"
     title = "Served TLS certificate"
-    description = "Connects to port 443 and records the certificate and protocol actually served."
+    description = ("Connects to port 443 and records the certificate and protocol actually "
+                   "served, and checks the certificate against abuse.ch SSLBL.")
     accepts = frozenset({EntityType.DOMAIN, EntityType.URL})
     direct = True
 
@@ -286,7 +310,36 @@ class TlsCollector(Collector):
         if org:
             ca = found.entity(EntityType.ORGANIZATION, org, role="certificate authority")
             found.relate(ref, RelationType.ISSUED_BY, ca, evidence_id=evidence)
+        await self._sslbl(found, target, ref, cert.fingerprint(hashes.SHA1()).hex(), ctx)  # noqa: S303 - SSLBL is keyed by SHA-1
         return found
+
+    async def _sslbl(self, found, target, cert_ref, sha1: str, ctx) -> None:
+        """abuse.ch SSLBL lists certificates seen on malware C2 servers. A
+        match on the certificate the site serves is a strong signal."""
+        try:
+            listing = await sslbl_catalog(ctx)
+        except FetchError as exc:
+            found.partial = True
+            found.notes.append(f"SSLBL unavailable: {exc}")
+            return
+        entry = listing.get(sha1)
+        if not entry:
+            return
+        ev = found.add_evidence(f"{SSLBL_URL} (sha1 {sha1})", json.dumps(entry, indent=2),
+                                "application/json")
+        found.observe(target, "threat.listed",
+                      {"feed": "abuse.ch SSLBL", "severity": "high",
+                       "meaning": "The served certificate is on abuse.ch's SSL Blacklist of "
+                                  "certificates used by malware command-and-control servers.",
+                       **entry},
+                      method="Match of certificate SHA-1 against SSLBL", evidence_id=ev,
+                      source_url=SSLBL_URL, confidence=0.9)
+        family = entry.get("reason", "").replace(" C&C", "").strip()
+        if family:
+            malware = found.entity(EntityType.MALWARE, family)
+            found.relate(cert_ref, RelationType.ASSOCIATED_WITH, malware, evidence_id=ev,
+                         confidence=0.9)
+
 
     async def _handshake(self, address, port, host, context, limit):
         async with asyncio.timeout(limit):
@@ -305,6 +358,27 @@ class TlsCollector(Collector):
                 await writer.wait_closed()
 
 
+SSLBL_URL = "https://sslbl.abuse.ch/blacklist/sslblacklist.csv"
+
+
+async def sslbl_catalog(ctx) -> dict[str, dict[str, str]]:
+    if "sslbl" in ctx.cache:
+        return ctx.cache["sslbl"]
+    path = cache_dir() / "sslbl.csv"
+    if path.exists() and time.time() - path.stat().st_mtime < 6 * 3600:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    else:
+        response = await fetch(ctx.client, SSLBL_URL, limiter=ctx.limiter,
+                               retries=ctx.settings.network.retries)
+        text = response.text
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    catalog = {}
+    for row in csv.reader(line for line in text.splitlines() if not line.startswith("#")):
+        if len(row) >= 3:
+            catalog[row[1].strip().lower()] = {"listed": row[0].strip(), "reason": row[2].strip()}
+    ctx.cache["sslbl"] = catalog
+    return catalog
 def _san_names(cert: x509.Certificate) -> list[str]:
     try:
         ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)

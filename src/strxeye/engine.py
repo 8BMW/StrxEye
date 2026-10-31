@@ -24,8 +24,12 @@ log = logging.getLogger(__name__)
 # what analysts nearly always want next, without fanning out across every
 # subdomain and nameserver.
 EXPANSION = {EntityType.DOMAIN: {
-    EntityType.IP: ("reverse_dns", "asn", "rdap", "threatfeeds", "internetdb"),
+    EntityType.IP: ("reverse_dns", "asn", "rdap", "threatfeeds", "internetdb", "dnsbl"),
 }}
+# Applied whatever the seed type: any malware family that turns up gets its
+# profile and, with an abuse.ch key, its known infrastructure.
+EXPANSION_ANY = {EntityType.MALWARE: ("malpedia", "abusech")}
+MAX_FAMILY_EXPANSIONS = 10
 
 
 class EngineError(Exception):
@@ -167,18 +171,28 @@ class Engine:
 
     def _expansion_jobs(self, seed: EntityRef, report: RunReport,
                         options: RunOptions) -> list[tuple[Collector, EntityRef]]:
-        plan = EXPANSION.get(seed.type, {})
-        discovered: list[EntityRef] = []
+        plan = {**EXPANSION.get(seed.type, {}), **EXPANSION_ANY}
+        discovered: dict[EntityType, list[EntityRef]] = {}
         for result in report.results:
             for entity in result.entities:
-                if entity.type in plan and entity.ref not in discovered and entity.ref != seed:
-                    discovered.append(entity.ref)
-        limit = self.settings.collection.max_expansions
+                bucket = discovered.setdefault(entity.type, [])
+                if entity.type in plan and entity.ref not in bucket and entity.ref != seed:
+                    bucket.append(entity.ref)
         jobs = []
-        for ref in discovered[:limit]:
-            for name in plan[ref.type]:
-                if name in self.collectors:
-                    jobs.append((self.collectors[name], ref))
+        for type_, refs in discovered.items():
+            if type_ not in plan:
+                continue
+            limit = (MAX_FAMILY_EXPANSIONS if type_ is EntityType.MALWARE
+                     else self.settings.collection.max_expansions)
+            for ref in refs[:limit]:
+                for name in plan[type_]:
+                    collector = self.collectors.get(name)
+                    # Expansion never adds direct collectors or ones missing a key.
+                    if collector is None or collector.direct:
+                        continue
+                    if collector.requires_key and not self.secret(collector.requires_key):
+                        continue
+                    jobs.append((collector, ref))
         return jobs
 
     async def _run_batch(self, ctx, jobs, report, investigation_id, on_event, cancel) -> None:

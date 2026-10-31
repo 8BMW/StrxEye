@@ -344,6 +344,15 @@ function GraphView({ graph, investigationId }: { graph: Graph; investigationId: 
               <li><span className="inline-block w-8 border-t-2 border-dashed border-inferred align-middle" /> inferred by correlation (not a source fact)</li>
               <li>Thicker lines carry higher confidence. Seeds have a ring.</li>
             </ul>
+            {graph.suppressed && graph.suppressed.length > 0 && (
+              <div className="rounded border border-line p-3">
+                <div className="label mb-1">Deliberately not linked ({graph.suppressed.length})</div>
+                <p className="mb-2 text-xxs">Shared infrastructure that says nothing about ownership, so no inferred link was drawn:</p>
+                <ul className="max-h-60 space-y-1 overflow-auto text-xxs">
+                  {graph.suppressed.map((s) => <li key={s} className="mono break-all">{s}</li>)}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </aside>
