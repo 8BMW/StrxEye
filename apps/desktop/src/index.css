@@ -1,6 +1,46 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Theme tokens. Colours resolve at runtime from the RGB triplets below, so
+   one set of class names serves both themes; Tailwind derives opacity
+   variants (bg-accent/15) with color-mix. "inline" makes utilities use the
+   value directly instead of an extra variable hop. */
+@theme inline {
+  --color-bg: rgb(var(--bg));
+  --color-panel: rgb(var(--panel));
+  --color-raised: rgb(var(--raised));
+  --color-line: rgb(var(--line));
+  --color-fg: rgb(var(--fg));
+  --color-muted: rgb(var(--muted));
+  --color-accent: rgb(var(--accent));
+  --color-accent-fg: rgb(var(--accent-fg));
+  --color-ok: rgb(var(--ok));
+  --color-warn: rgb(var(--warn));
+  --color-bad: rgb(var(--bad));
+  --color-inferred: rgb(var(--inferred));
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, SFMono-Regular, monospace;
+
+  --text-xxs: 11px;
+  --text-xxs--line-height: 15px;
+}
+
+/* Tailwind 4 changed two preflight defaults that this UI relies on: borders
+   are currentColor instead of a neutral grey, and buttons no longer show a
+   pointer cursor. Restore the previous behaviour. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: rgb(var(--line));
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
 
 /* Colour tokens as RGB triplets so Tailwind opacity modifiers work. */
 :root,
@@ -47,16 +87,24 @@ body {
 }
 
 @layer components {
-  .btn {
-    @apply inline-flex items-center gap-1.5 rounded border border-line bg-raised px-3 py-1.5 text-[13px] font-medium
-      hover:border-accent/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent
+  /* Each button variant sets its colours exactly once. Tailwind 4 orders
+     conflicting utilities inside one @apply by its own sort, not by the order
+     written, so a shared base must not contain colours a variant overrides. */
+  .btn,
+  .btn-primary,
+  .btn-danger {
+    @apply inline-flex items-center gap-1.5 rounded border px-3 py-1.5 text-[13px] font-medium
+      focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent
       disabled:cursor-not-allowed disabled:opacity-50;
   }
+  .btn {
+    @apply border-line bg-raised hover:border-accent/60;
+  }
   .btn-primary {
-    @apply btn border-accent bg-accent text-accent-fg hover:brightness-110;
+    @apply border-accent bg-accent text-accent-fg hover:brightness-110;
   }
   .btn-danger {
-    @apply btn text-bad hover:border-bad;
+    @apply border-line bg-raised text-bad hover:border-bad;
   }
   .btn-sm {
     @apply px-2 py-1 text-xs;
